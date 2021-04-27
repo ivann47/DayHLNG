@@ -2,7 +2,30 @@
 #include <Trade/SymbolInfo.mqh>
 #include <Trade/AccountInfo.mqh>
 #include <Trade/PositionInfo.mqh>
-#include "ExpertParams.mqh"
+//#include "ExpertParams.mqh"
+
+enum ENUM_ORDER_POSITION {
+	ORDER_POSITION_SHADOW,
+	ORDER_POSITION_BODY,
+	ORDER_POSITION_CLOSE
+};
+
+sinput uint i_magicNumber = 19700626;								// MagickNumber
+input ENUM_ORDER_POSITION i_ordersPosition = ORDER_POSITION_SHADOW;	// Ориентир для установки ордеров
+input uint i_ordersOffset = 0;										// Смещение для ордеров
+sinput uint i_maxSpread = 30;										// Максимальный размер спреда
+sinput uint i_delay = 0;											// Задержка перед выставлением ордеров
+input uint i_minBarSize = 0;										// Минимальный размер свечи
+input uint i_maxBarSize = 100000;									// Максимальный размер свечи
+input double i_riskLimit = 0.01;									// Допустимый риск (коэффициент)
+input double i_fixedVolume = 0.01;									// Фиксированный объем
+input uint i_takeProfit = 300;										// Фиксированный TP (пипсы)
+input uint i_stopLoss = 200;										// Фиксированный SL (пипсы)
+input uint i_fixedTrailTriggerLevel = 0;							// Уровень включения Trailing Stop (пипсы)
+input uint i_fixedTrail = 0;										// Фиксированный Trailing Stop (пипсы)
+input uint i_breakevenTriggerLevel = 0;								// Уровень перевода позиции в безубыток (пипсы)
+input uint i_breakevenValue = 0;									// Величина безубытка (пипсы)
+input uint i_maxOpenedPositions = 1;								// Максимальное количество открытых позиций
 
 class CDayHLNG {
 public:
@@ -10,19 +33,19 @@ public:
 		m_highTicket = m_lowTicket = 0;
 	};
 
-	bool Init(const string symbol, const ulong magicNumber, const ExpertParams& params) {
+	bool Init(const string symbol) {
 		m_symbol = symbol;
-		if (!m_symbolInfo.Name(m_symbol)) { return false; }
+		if (!m_symbolInfo.Name(m_symbol)) return false;
 
-		m_magicNumber = magicNumber;
-		m_trade.SetExpertMagicNumber(m_magicNumber);
+		m_trade.SetExpertMagicNumber(i_magicNumber);
 
-		checkAndCopyParams(params);
+		if (!checkInputParams()) return false;
+//		checkAndCopyParams(params);
 
-		if (!EventSetTimer(60)) { return false; }
+		if (!EventSetTimer(60)) return false;
 
-		m_currentBarTime = getLastRateTime();
-		if (m_currentBarTime == 0) { return false; }
+		m_lowOrderBarTime = m_highOrderBarTime = getLastRateTime();
+		if (m_lowOrderBarTime == 0) return false;
 
 		return true;
 	}
@@ -30,15 +53,15 @@ public:
 	void Deinit(const int reason) { EventKillTimer(); }
 
 	void OnTick() {
-		if (!checkOpenedPositions()) { return; }
+		if (!checkOpenedPositions()) return;
 
 		int positionsTotal = PositionsTotal();
 		for (int i = positionsTotal - 1; i >= 0; i--) {
 			if (checkPositionMagickNumber(i)) {
-				if (m_breakevenTriggerLevel > 0 && checkReachBreakevenLevel()) {
-					setBreakeven();
+				if (i_breakevenTriggerLevel > 0 && checkCanSetBreakeven()) {
+					setPositionBreakeven();
 				}
-				if (m_fixedTrailLevel > 0 && m_fixedTrail > 0) {
+				if (i_fixedTrailTriggerLevel > 0 && i_fixedTrail > 0) {
 					trailPosition();
 				}
 			}
@@ -47,7 +70,8 @@ public:
 
 	void OnTimer() {
 		datetime t = getLastRateTime();
-		if (t == m_currentBarTime || !checkAllowTrade()) return;
+
+		if ((t == m_lowOrderBarTime && t == m_highOrderBarTime) || !checkAllowTrade(t)) return;
 
 		MqlRates rates[1];
 		if (CopyRates(m_symbol, PERIOD_D1, 1, 1, rates) == -1) {
@@ -55,41 +79,26 @@ public:
 			return;
 		}
 
-		if (checkRateLimits(rates[0]) && !openOrders(rates[0])) {
-			deleteAllOrders();
-			return;
+		if (!checkRateLimits(rates[0])) return;
+
+		m_symbolInfo.Refresh();
+		m_symbolInfo.RefreshRates();
+
+		if (t > m_highOrderBarTime && openBuyOrder(rates[0])) {
+			m_highOrderBarTime = t;
 		}
-		m_currentBarTime = t;
-	}
 
-	void OnTrade() {}
-
-	void OnTradeTransaction(const MqlTradeTransaction& transaction, const MqlTradeRequest& request, const MqlTradeResult& result) {
-		if (request.action == TRADE_ACTION_REMOVE) {
-			PrintFormat("OnTradeTransaction: ticket=%I64u, retcode=%I32u", request.order, result.retcode);
+		if (t > m_lowOrderBarTime && openSellOrder(rates[0])) {
+			m_lowOrderBarTime = t;
 		}
 	}
 
 private:
-	// Входные параметры
 	string m_symbol;
-	ulong m_magicNumber;
-	ENUM_HIGH_ORDER_TYPE m_highOrderType;
-	ENUM_LOW_ORDER_TYPE m_lowOrderType;
-	uint m_highOffset;
-	uint m_lowOffset;
-	uint m_minLimit;
-	uint m_maxLimit;
-	double m_riskLimit;
-	double m_fixedVolume;
-	uint m_fixedTP;
-	uint m_fixedSL;
-	double m_profitToRiskRatio;
-	uint m_breakevenTriggerLevel;
-	uint m_breakevenValue;
-	uint m_fixedTrailLevel;
-	uint m_fixedTrail;
-	uint m_maxOpenedPositions;
+	datetime m_highOrderBarTime;
+	datetime m_lowOrderBarTime;
+	ulong m_highTicket;
+	ulong m_lowTicket;
 
 	CTrade m_trade;
 	CSymbolInfo m_symbolInfo;
@@ -97,27 +106,10 @@ private:
 	CPositionInfo m_positionInfo;
 	CAccountInfo m_accountInfo;
 
-	datetime m_currentBarTime;
-	ulong m_highTicket;
-	ulong m_lowTicket;
-
-	bool checkAndCopyParams(const ExpertParams& params) {
-		m_highOrderType = params.highOrderType;
-		m_lowOrderType = params.lowOrderType;
-		m_highOffset = params.highOffset;
-		m_lowOffset = params.lowOffset;
-		m_minLimit = params.minLimit;
-		m_maxLimit = params.maxLimit;
-		m_riskLimit = params.riskLimit;
-		m_fixedVolume = params.fixedVolume;
-		m_fixedTP = params.fixedTP;
-		m_fixedSL = params.fixedSL;
-		m_profitToRiskRatio = params.profitToRiskRatio;
-		m_breakevenTriggerLevel = params.breakevenTriggerLevel;
-		m_breakevenValue = params.breakevenValue;
-		m_fixedTrailLevel = params.fixedTrailLevel;
-		m_fixedTrail = params.fixedTrail;
-		m_maxOpenedPositions = params.maxOpenedPositions;
+	bool checkInputParams() {
+		if (i_ordersPosition == ORDER_POSITION_CLOSE && (int)i_ordersOffset < m_symbolInfo.StopsLevel()) {
+			return false;
+		}
 		return true;
 	}
 
@@ -127,34 +119,48 @@ private:
 		return 0;
 	}
 
-	bool checkAllowTrade() {
-		return m_maxOpenedPositions == 0 || PositionsTotal() < m_maxOpenedPositions;
+	uint getOpenedPositionsNumber() {
+		int positionsNumber = 0;
+		for (int i = PositionsTotal(); i > 0; i--) {
+			int positionIndex = i - 1;
+			string symbol = PositionGetSymbol(positionIndex);
+			if (symbol != m_symbol) continue;
+			long magicNumber = PositionGetInteger(POSITION_MAGIC);
+			if (magicNumber == i_magicNumber) positionsNumber++;
+		}
+		return positionsNumber;
+	}
+
+	bool checkAllowTrade(datetime t) {
+		return getOpenedPositionsNumber() < i_maxOpenedPositions &&
+			m_symbolInfo.Spread() < (int)i_maxSpread &&
+			TimeCurrent() - t > i_delay;
 	}
 
 	bool checkRateLimits(const MqlRates& rate) {
 		uint delta = (int)MathFloor((rate.high - rate.low) / m_symbolInfo.Point());
-		if (delta < m_minLimit) {
-			PrintFormat("NOTICE: Bar is less than limit: bar=%d, limit=%d", delta, m_minLimit);
+		if (delta < i_minBarSize) {
+			PrintFormat("NOTICE: Bar is less than limit: bar=%d, limit=%d", delta, i_minBarSize);
 			return false;
-		} else if (delta > m_maxLimit) {
-			PrintFormat("NOTICE: Bar is greater than limit: bar=%d, limit=%d", delta, m_maxLimit);
+		} else if (delta > i_maxBarSize) {
+			PrintFormat("NOTICE: Bar is greater than limit: bar=%d, limit=%d", delta, i_maxBarSize);
 			return false;
 		}
 		return true;
 	}
 
 	bool checkOpenedPositions() {
-		return m_positionInfo.SelectByMagic(m_symbol, m_magicNumber);
+		return m_positionInfo.SelectByMagic(m_symbol, i_magicNumber);
 	}
 
 	bool checkPositionMagickNumber(int positionIndex) {
-		return m_positionInfo.SelectByIndex(positionIndex) && m_positionInfo.Magic() == m_magicNumber;
+		return m_positionInfo.SelectByIndex(positionIndex) && m_positionInfo.Magic() == i_magicNumber;
 	}
 
 	void deleteAllOrders() {
 		int ordersTotal = OrdersTotal();
 		for (int i = ordersTotal - 1; i >=0; i--) {
-			if (m_orderInfo.SelectByIndex(i) && m_orderInfo.Magic() == m_magicNumber) {
+			if (m_orderInfo.SelectByIndex(i) && m_orderInfo.Magic() == i_magicNumber) {
 				m_trade.OrderDelete(m_orderInfo.Ticket());
 			}
 		}
@@ -168,43 +174,62 @@ private:
 	double calcVolume(double price, double sl, ENUM_ORDER_TYPE orderType) {
 		double loss = m_accountInfo.OrderProfitCheck(m_symbol, orderType, 1, price, sl);
 //		PrintFormat("DEBUG: calcVolume: price=%f, sl=%f, loss=%f", price, sl, loss);
-    	return adjustVolume(m_accountInfo.Balance() * m_riskLimit / MathAbs(loss));
+    	return adjustVolume(m_accountInfo.Balance() * i_riskLimit / MathAbs(loss));
 	}
 
-	double getDeltaSL(const MqlRates& rate) {
-		return m_fixedSL > 0 ?
-			m_fixedSL * m_symbolInfo.Point() :
-			rate.high - rate.low + (m_highOffset + m_lowOffset) * m_symbolInfo.Point();
+	double getBodyTopPrice(const MqlRates& rate) {
+		return rate.close > rate.open ? rate.close : rate.open;
 	}
 
-	double getDeltaTP(double deltaSL) {
-		return m_fixedTP > 0 ?
-			m_fixedTP * m_symbolInfo.Point() :
-			deltaSL * m_profitToRiskRatio;
+	double getBodyBottomPrice(const MqlRates& rate) {
+		return rate.close > rate.open ? rate.open : rate.close;
 	}
 
-	double getHighSL(double price, double deltaSL) {
-		return m_highOrderType == DAYHL_BUY_STOP ? price - deltaSL : price + deltaSL;
+	double getBuyPrice(const MqlRates& rate) {
+		double price = i_ordersPosition == ORDER_POSITION_SHADOW ?
+			rate.high :
+			i_ordersPosition == ORDER_POSITION_CLOSE ?
+				rate.close :
+				getBodyTopPrice(rate);
+		return price + (i_ordersOffset + m_symbolInfo.Spread()) * m_symbolInfo.Point();
 	}
 
-	double getHighTP(double price, double deltaTP) {
-		return m_highOrderType == DAYHL_BUY_STOP ? price + deltaTP : price - deltaTP;
+	double getSellPrice(const MqlRates& rate) {
+		double price = i_ordersPosition == ORDER_POSITION_SHADOW ?
+			rate.low :
+			i_ordersPosition == ORDER_POSITION_CLOSE ?
+				rate.close :
+				getBodyBottomPrice(rate);
+		return price - i_ordersOffset * m_symbolInfo.Point();
 	}
 
-	bool openHighOrder(const MqlRates& rate, double deltaSL, double deltaTP) {
-		double price = rate.high + m_highOffset * m_symbolInfo.Point();
-		double sl = getHighSL(price, deltaSL);
-		double volume = m_fixedVolume > 0 ?
-			m_fixedVolume :
-			calcVolume(price, sl, m_highOrderType == DAYHL_BUY_STOP ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
-		if (volume < m_symbolInfo.LotsMin()) {
-			PrintFormat("WARNING: High volume too small");
-			return true;
+	bool openBuyOrder(const MqlRates& rate) {
+		static bool priceWarningPrinted = false;
+		static bool volumeWargingPrinted = false;
+
+		double price = getBuyPrice(rate);
+		if (price < m_symbolInfo.Ask()) {
+			if (!priceWarningPrinted) {
+				PrintFormat("WARNING: price is less than Ask price: %f < %f", price, m_symbolInfo.Ask());
+				priceWarningPrinted = true;
+			}
+			return false;
 		}
-		double tp = getHighTP(price, deltaTP);
-		bool success = m_highOrderType == DAYHL_BUY_STOP ?
-			m_trade.BuyStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY) :
-			m_trade.SellLimit(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY);
+		priceWarningPrinted = false;
+
+		double tp = price + i_takeProfit * m_symbolInfo.Point();
+		double sl = price - i_stopLoss * m_symbolInfo.Point();
+		double volume = i_fixedVolume > 0 ? i_fixedVolume : calcVolume(price, sl, ORDER_TYPE_BUY);
+		if (volume < m_symbolInfo.LotsMin()) {
+			if (!volumeWargingPrinted) {
+				PrintFormat("WARNING: Buy volume too small: %f", volume);
+				volumeWargingPrinted = true;
+			}
+			return false;
+		}
+		volumeWargingPrinted = false;
+
+		bool success = m_trade.BuyStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY);
 		if (!success || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
 			return false;
 		}
@@ -212,32 +237,37 @@ private:
 		return true;
 	}
 
-	double getLowSL(double price, double deltaSL) {
-		return m_lowOrderType == DAYHL_SELL_STOP ? price + deltaSL : price - deltaSL;
-	}
+	bool openSellOrder(const MqlRates& rate) {
+		static bool priceWarningPrinted = false;
+		static bool volumeWargingPrinted = false;
 
-	double getLowTP(double price, double deltaTP) {
-		return m_lowOrderType == DAYHL_SELL_STOP ? price - deltaTP : price + deltaTP;
-	}
+		double price = getSellPrice(rate);
+		if (price > m_symbolInfo.Bid()) {
+			if (!priceWarningPrinted) {
+				PrintFormat("WARNING: price is more than Bid price: %f > %f", price, m_symbolInfo.Bid());
+				priceWarningPrinted = true;
+			}
+			return false;
+		}
+		priceWarningPrinted = false;
 
-	bool openLowOrder(const MqlRates& rate, double deltaSL, double deltaTP) {
-		double price = rate.low - m_lowOffset * m_symbolInfo.Point();
-		double sl = getLowSL(price, deltaSL);
-		double volume = m_fixedVolume > 0 ?
-			m_fixedVolume :
-			calcVolume(price, sl, m_lowOrderType == DAYHL_SELL_STOP ? ORDER_TYPE_SELL : ORDER_TYPE_BUY);
+		double tp = price - i_takeProfit * m_symbolInfo.Point();
+		double sl = price + i_stopLoss * m_symbolInfo.Point();
+		double volume = i_fixedVolume > 0 ? i_fixedVolume : calcVolume(price, sl, ORDER_TYPE_SELL);
 		if (volume < m_symbolInfo.LotsMin()) {
-			PrintFormat("WARNING: Low volume too small");
+			if (!volumeWargingPrinted) {
+				PrintFormat("WARNING: Sell volume too small");
+				volumeWargingPrinted = true;
+			}
 			return true;
 		}
-		double tp = getLowTP(price, deltaTP);
-		bool success = m_lowOrderType == DAYHL_SELL_STOP ?
-			m_trade.SellStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY) :
-			m_trade.BuyLimit(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY);
+		volumeWargingPrinted = false;
+
+		bool success = m_trade.SellStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY);
 		if (!success || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
 			return false;
 		}
-		m_highTicket = m_trade.ResultOrder();
+		m_lowTicket = m_trade.ResultOrder();
 		return true;
 	}
 
@@ -245,42 +275,18 @@ private:
 		return rate.open < rate.close;
 	}
 
-	bool openOrders(const MqlRates& rate) {
-		double deltaSL = getDeltaSL(rate);
-		double deltaTP = getDeltaTP(deltaSL);
-
-		if (checkBullBar(rate)) {
-			return openHighOrder(rate, deltaSL, deltaTP) && openLowOrder(rate, deltaSL, deltaTP);
-		}
-		return openLowOrder(rate, deltaSL, deltaTP) && openHighOrder(rate, deltaSL, deltaTP);
-	}
-
-	// Проверка достижения уровня установки безубыточности
-	bool checkReachBreakevenLevel() {
-		ENUM_POSITION_TYPE type = m_positionInfo.PositionType();
-		double openPrice = m_positionInfo.PriceOpen(),
-			   currentPrice = m_positionInfo.PriceCurrent(),
-			   sl = m_positionInfo.StopLoss();
-		double delta = m_breakevenTriggerLevel * m_symbolInfo.Point();
-		return (type == POSITION_TYPE_BUY && sl < openPrice && currentPrice >= openPrice + delta) ||
-			(type == POSITION_TYPE_SELL && sl > openPrice && currentPrice <= openPrice - delta);
-	}
-
-	void setBreakeven() {
-		ulong ticket = m_positionInfo.Ticket();
-		ENUM_POSITION_TYPE type = m_positionInfo.PositionType();
-		double price = m_positionInfo.PriceOpen(),
-			   tp = m_positionInfo.TakeProfit();
-
-		double delta = m_breakevenValue * m_symbolInfo.Point();
-
-		double sl = price + (type == POSITION_TYPE_BUY ? 1 : -1) * delta;
-
-		if (m_trade.PositionModify(ticket, sl, tp)) {
-			PrintFormat("Change SL: ticket=%I64u, SL=%f", ticket, sl);
-		} else {
-			PrintFormat("ERROR: Change SL failed: %d", GetLastError());
-		}
+	bool modifyPosition(ulong ticket, double sl, double tp) {
+		MqlTradeRequest request;
+		MqlTradeResult result;
+		ZeroMemory(request);
+		ZeroMemory(result);
+		request.action = TRADE_ACTION_SLTP;
+		request.symbol = m_symbol;
+		request.sl = sl;
+		request.tp = tp;
+		request.position = ticket;
+		request.magic = i_magicNumber;
+		return OrderSend(request, result);
 	}
 
 	void trailPosition() {
@@ -291,15 +297,54 @@ private:
 			   tp = m_positionInfo.TakeProfit(),
 			   sl = m_positionInfo.StopLoss();
 
-		double trailLevelDelta = m_fixedTrailLevel * m_symbolInfo.Point();
-		double trailDelta = m_fixedTrail * m_symbolInfo.Point();
+		double trailLevelDelta = i_fixedTrailTriggerLevel * m_symbolInfo.Point();
+		double trailDelta = i_fixedTrail * m_symbolInfo.Point();
 
 		if (type == POSITION_TYPE_BUY && currentPrice - trailLevelDelta > openPrice && currentPrice - trailDelta > sl) {
 //			PrintFormat("DEBUG: trailPosition: ticket=%I64u, openPrice=%f, currentPrice=%f, fixedDelta=%f", ticket, openPrice, currentPrice, trailDelta);
-			m_trade.PositionModify(ticket, currentPrice - trailDelta, tp);
+			modifyPosition(ticket, currentPrice - trailDelta, tp);
 		} else if (type == POSITION_TYPE_SELL && currentPrice + trailLevelDelta < openPrice && currentPrice + trailDelta < sl) {
 //			PrintFormat("DEBUG: trailPosition: ticket=%I64u, openPrice=%f, currentPrice=%f, fixedDelta=%f", ticket, openPrice, currentPrice, trailDelta);
-			m_trade.PositionModify(ticket, currentPrice + trailDelta, tp);
+			modifyPosition(ticket, currentPrice + trailDelta, tp);
+		}
+	}
+
+	int calcPoints(double pricesDelta) {
+		return (int)(pricesDelta / m_symbolInfo.Point());
+	}
+
+	double calcPriceDelta(int points) {
+		return points * m_symbolInfo.Point();
+	}
+
+	bool checkCanSetBreakeven() {
+		ENUM_POSITION_TYPE type = m_positionInfo.PositionType();
+		double openPrice = m_positionInfo.PriceOpen(),
+			   currentPrice = m_positionInfo.PriceCurrent(),
+			   sl = m_positionInfo.StopLoss();
+		return ((type == POSITION_TYPE_BUY &&
+				 calcPoints(sl - openPrice) < (int)i_breakevenValue &&
+				 calcPoints(currentPrice - openPrice) >= (int)i_breakevenTriggerLevel) ||
+				(type == POSITION_TYPE_SELL &&
+				 calcPoints(openPrice - sl) < (int)i_breakevenValue &&
+				 calcPoints(openPrice - currentPrice) >= (int)i_breakevenTriggerLevel));
+
+	}
+
+	void setPositionBreakeven() {
+		ENUM_POSITION_TYPE type = m_positionInfo.PositionType();
+		ulong ticket = m_positionInfo.Ticket();
+		double openPrice = m_positionInfo.PriceOpen(),
+			   currentPrice = m_positionInfo.PriceCurrent(),
+			   tp = m_positionInfo.TakeProfit(),
+			   sl = m_positionInfo.StopLoss();
+
+		if (type == POSITION_TYPE_BUY) {
+//			PrintFormat("DEBUG: trailPosition: ticket=%I64u, openPrice=%f, currentPrice=%f, fixedDelta=%f", ticket, openPrice, currentPrice, trailDelta);
+			modifyPosition(ticket, openPrice + calcPriceDelta(i_breakevenValue), tp);
+		} else if (type == POSITION_TYPE_SELL) {
+//			PrintFormat("DEBUG: trailPosition: ticket=%I64u, openPrice=%f, currentPrice=%f, fixedDelta=%f", ticket, openPrice, currentPrice, trailDelta);
+			modifyPosition(ticket, openPrice - calcPriceDelta(i_breakevenValue), tp);
 		}
 	}
 /*
@@ -370,11 +415,11 @@ void CDayHLNG::OnTrade() {
 	int positionsCount = PositionsTotal();
 	if (positionsCount > 0) {
 		if (m_positionTicket == 0) {
-			if (!m_position.SelectByMagic(Symbol(), m_magicNumber)) return;
+			if (!m_position.SelectByMagic(Symbol(), i_magicNumber)) return;
 			m_positionTicket = m_position.Identifier();
 			PrintFormat("Position opened: id=%I64u", m_positionTicket);
 		} else {
-			if (!m_position.SelectByMagic(Symbol(), m_magicNumber)) {
+			if (!m_position.SelectByMagic(Symbol(), i_magicNumber)) {
 				PrintFormat("Position closed: id=%I64u", m_positionTicket);
 				m_positionTicket = 0;
 			} else {
@@ -423,7 +468,7 @@ double CDayHLNG::adjustVolume(double volume) {
 
 double CDayHLNG::calcVolume(double sellPrice, double buyPrice) {
 	double loss = m_account.OrderProfitCheck(m_symbol.Name(), ORDER_TYPE_BUY, 1, sellPrice, buyPrice);
-	return this.adjustVolume(m_account.Balance() * m_riskLimit / loss);
+	return this.adjustVolume(m_account.Balance() * i_riskLimit / loss);
 }
 
 void CDayHLNG::setOrders(const MqlRates& rate) {
@@ -443,7 +488,7 @@ void CDayHLNG::setOrders(const MqlRates& rate) {
 		PrintFormat("CDayHLNG::setOrders: sellPrice correction: %f -> %f", sellPrice, maxSellPrice);
 		sellPrice = m_sellPrice = maxSellPrice;
 	}
-	double volume = m_fixedVolume > 0 ? m_fixedVolume : this.calcVolume(sellPrice, buyPrice);
+	double volume = i_fixedVolume > 0 ? i_fixedVolume : this.calcVolume(sellPrice, buyPrice);
 	if (volume < m_symbol.LotsMin()) {
 		PrintFormat("CDayHLNG::setOrders: volume is less than minimal: volume=%f, minimal=%f", volume, m_symbol.LotsMin());
 		return;
@@ -475,7 +520,7 @@ void CDayHLNG::deleteAllOrders() {
 	int ordersCount = OrdersTotal();
 	COrderInfo oi;
 	for (int i = ordersCount - 1; i >=0; i--) {
-		if (oi.SelectByIndex(i) && oi.Magic() == m_magicNumber) {
+		if (oi.SelectByIndex(i) && oi.Magic() == i_magicNumber) {
 			m_trade.OrderDelete(oi.Ticket());
 		}
 	}
