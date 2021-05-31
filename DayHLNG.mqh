@@ -148,6 +148,10 @@ private:
 		return 0;
 	}
 
+	string getOrderComment() {
+		return IntegerToString(i_magicNumber);
+	}
+
 	uint getOpenedPositionsNumber() {
 		int positionsNumber = 0;
 		for (int i = PositionsTotal(); i > 0; i--) {
@@ -258,7 +262,7 @@ private:
 		}
 		volumeWargingPrinted = false;
 
-		bool success = m_trade.BuyStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY);
+		bool success = m_trade.BuyStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment());
 		if (!success || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
 			return false;
 		}
@@ -292,7 +296,7 @@ private:
 		}
 		volumeWargingPrinted = false;
 
-		bool success = m_trade.SellStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY);
+		bool success = m_trade.SellStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment());
 		if (!success || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
 			return false;
 		}
@@ -386,211 +390,4 @@ private:
 		}
 		return false;
 	}
-
-/*
-	void calcStartMoment();
-	void calcStopMoment();
-	void calcStartStopMoments();
-	bool checkCanTrade(const MqlRates& rate);
-	void startTrade();
-	void setOrders(const MqlRates& rate);
-	void stopTrade();
-	void closeAllPositions();
-	void deleteAllOrders();
-	void setBreakEvenIfNeed();
-	double adjustVolume(double volume);
-	double calcVolume(double sellPrice, double buyPrice);
-*/
-//    void checkOpenedPositions(int positionsCount);
-//    void checkClosedPositions(int positionsCount);
 };
-
-/*
-double getPositionPricesDiff(const CPositionInfo& pi) {
-	return pi.PositionType() == POSITION_TYPE_BUY ?
-		pi.PriceCurrent() - pi.PriceOpen() :
-		pi.PriceOpen() - pi.PriceCurrent();
-	// PrintFormat("getPositionPricesDiff: type=%d, priceCurrent=%f, priceOpen=%f, priceDiff=%f",
-	//     pi.PositionType(), pi.PriceCurrent(), pi.PriceOpen(), priceDiff);
-	// return priceDiff;
-}
-
-void CDayHLNG::setBreakEvenIfNeed() {
-	m_position.SelectByTicket(m_positionTicket);
-	double price = m_position.PriceOpen(),
-		   currentPrice = m_position.PriceCurrent(),
-		   tp = m_position.TakeProfit(),
-		   sl = m_position.StopLoss(),
-		   slNew;
-	if (m_position.PositionType() == POSITION_TYPE_BUY && sl < price && currentPrice >= price + m_breakeven * m_priceDiff) {
-		slNew = price;
-	} else if (m_position.PositionType() == POSITION_TYPE_SELL && sl > price && currentPrice <= price - m_breakeven * m_priceDiff) {
-		slNew = price;
-	} else {
-		return;
-	}
-	if (m_trade.PositionModify(m_positionTicket, slNew, tp)) {
-		PrintFormat("Change position SL: %f -> %f, id=%I64u", sl, slNew, m_positionTicket);
-	} else {
-		PrintFormat("ERROR: Change SL failed: %d", GetLastError());
-	}
-}
-
-void CDayHLNG::OnTick() {
-	if (m_positionTicket == 0) return;
-	setBreakEvenIfNeed();
-}
-
-void CDayHLNG::OnTimer() {
-	datetime now = TimeLocal();
-	if (now >= m_startMoment) {
-		startTrade();
-	} else if (now >= m_stopMoment) {
-		stopTrade();
-		calcStopMoment();
-	}
-}
-
-void CDayHLNG::OnTrade() {
-	int positionsCount = PositionsTotal();
-	if (positionsCount > 0) {
-		if (m_positionTicket == 0) {
-			if (!m_position.SelectByMagic(Symbol(), i_magicNumber)) return;
-			m_positionTicket = m_position.Identifier();
-			PrintFormat("Position opened: id=%I64u", m_positionTicket);
-		} else {
-			if (!m_position.SelectByMagic(Symbol(), i_magicNumber)) {
-				PrintFormat("Position closed: id=%I64u", m_positionTicket);
-				m_positionTicket = 0;
-			} else {
-				long positionTicket = m_position.Identifier();
-				if (positionTicket == m_positionTicket) return;
-				PrintFormat("Position closed: id=%I64u", m_positionTicket);
-				m_positionTicket = positionTicket;
-				PrintFormat("Position opened: id=%I64u", m_positionTicket);
-			}
-		}
-	} else {
-		if (m_positionTicket == 0) return;
-		PrintFormat("Position closed: id=%I64u", m_positionTicket);
-		m_positionTicket = 0;
-	}
-}
-
-void CDayHLNG::OnTradeTransaction(const MqlTradeTransaction& transaction, const MqlTradeRequest& request, const MqlTradeResult& result) {
-//    checkPositionCountChanged();
-}
-
-bool CDayHLNG::checkCanTrade(const MqlRates& rate) {
-	if (!m_account.TradeAllowed()) {
-		PrintFormat("CDayHLNG::checkCanTrade: Trade not allowed");
-		return false;
-	}
-	if (!m_account.TradeExpert()) {
-		PrintFormat("CDayHLNG::checkCanTrade: Expert trade not allowed");
-		return false;
-	}
-	uint barSize = (uint)MathRound((rate.high - rate.low) / m_symbol.Point());
-	if (barSize < m_barMinLimit) {
-		PrintFormat("Bar size is too small: low=%f, high=%f, size=%u", rate.low, rate.high, barSize);
-		return false;
-	}
-	if (barSize > m_barMaxLimit) {
-		PrintFormat("Bar size is too large: low=%f, high=%f, size=%u", rate.low, rate.high, barSize);
-		return false;
-	}
-	return true;
-}
-
-double CDayHLNG::adjustVolume(double volume) {
-	return MathRound(volume / m_symbol.LotsMin()) * m_symbol.LotsMin();
-}
-
-double CDayHLNG::calcVolume(double sellPrice, double buyPrice) {
-	double loss = m_account.OrderProfitCheck(m_symbol.Name(), ORDER_TYPE_BUY, 1, sellPrice, buyPrice);
-	return this.adjustVolume(m_account.Balance() * i_riskLimit / loss);
-}
-
-void CDayHLNG::setOrders(const MqlRates& rate) {
-	double stopsLevel = m_symbol.StopsLevel();
-	double point = m_symbol.Point();
-	double bodyTop = rate.open > rate.close ? rate.open : rate.close;
-	double bodyBottom = rate.open < rate.close ? rate.open : rate.close;
-	double buyPrice = m_buyPrice = bodyTop + m_offsetPoints * point;
-	double minBuyPrice = m_symbol.Ask() + stopsLevel * point;
-	if (buyPrice < minBuyPrice) {
-		PrintFormat("CDayHLNG::setOrders: buyPrice correction: %f -> %f", buyPrice, minBuyPrice);
-		buyPrice = m_buyPrice = minBuyPrice;
-	}
-	double sellPrice = m_sellPrice = bodyBottom - m_offsetPoints * point;
-	double maxSellPrice = m_symbol.Bid() - stopsLevel * point;
-	if (sellPrice > maxSellPrice) {
-		PrintFormat("CDayHLNG::setOrders: sellPrice correction: %f -> %f", sellPrice, maxSellPrice);
-		sellPrice = m_sellPrice = maxSellPrice;
-	}
-	double volume = i_fixedVolume > 0 ? i_fixedVolume : this.calcVolume(sellPrice, buyPrice);
-	if (volume < m_symbol.LotsMin()) {
-		PrintFormat("CDayHLNG::setOrders: volume is less than minimal: volume=%f, minimal=%f", volume, m_symbol.LotsMin());
-		return;
-	}
-	double delta = m_priceDiff = m_buyPrice - m_sellPrice;
-	double buyTP = buyPrice + delta * m_profitToRiskRatio,
-		   sellTP = sellPrice - delta * m_profitToRiskRatio;
-	m_trade.BuyStop(volume, buyPrice, m_symbol.Name(), sellPrice, buyTP, ORDER_TIME_SPECIFIED, m_stopMoment);
-	m_trade.SellStop(volume, sellPrice, m_symbol.Name(), buyPrice, sellTP, ORDER_TIME_SPECIFIED, m_stopMoment);
-	PrintFormat("CDayHLNG::setOrders: high=%f buy=%f low=%f sell=%f delta=%f", rate.high, buyPrice, rate.low, sellPrice, delta);
-}
-
-void CDayHLNG::startTrade() {
-	m_symbol.Refresh();
-	m_symbol.RefreshRates();
-	MqlRates rates[2];
-	int n = CopyRates(m_symbol.Name(), PERIOD_H4, 0, 2, rates);
-	if (n != -1 && rates[1].time >= m_startMoment) {
-		if (checkCanTrade(rates[0])) {
-			setOrders(rates[0]);
-			calcStartMoment();
-		} else {
-			calcStartStopMoments();
-		}
-	}
-}
-
-void CDayHLNG::deleteAllOrders() {
-	int ordersCount = OrdersTotal();
-	COrderInfo oi;
-	for (int i = ordersCount - 1; i >=0; i--) {
-		if (oi.SelectByIndex(i) && oi.Magic() == i_magicNumber) {
-			m_trade.OrderDelete(oi.Ticket());
-		}
-	}
-}
-
-void CDayHLNG::stopTrade() {
-	if (m_positionTicket) m_trade.PositionClose(m_positionTicket);
-	deleteAllOrders();
-}
-
-void CDayHLNG::calcStartMoment() {
-	MqlDateTime dt;
-	datetime now = TimeLocal(dt);
-	if (dt.day_of_week == 0) {
-		m_startMoment = now + 3600 * (4 + 23 - dt.hour) + 60 * (59 - dt.min) + (60 - dt.sec);
-	} else if (dt.day_of_week == 1 && dt.hour < 4) {
-		m_startMoment = now + 3600 * (3 - dt.hour) + 60 * (59 - dt.min) + (60 - dt.sec);
-	} else {
-		m_startMoment = now + 3600 * (24 * (7 - dt.day_of_week) + 4 + 23 - dt.hour) + 60 * (59 - dt.min) + (60 - dt.sec);
-	}
-	PrintFormat("now=%I64u, nextStartMoment=%I64u", now, m_startMoment);
-}
-
-void CDayHLNG::calcStopMoment() {
-	m_stopMoment = m_startMoment + 414000;
-}
-
-void CDayHLNG::calcStartStopMoments() {
-	calcStartMoment();
-	calcStopMoment();
-}
-
-*/
