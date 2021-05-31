@@ -21,10 +21,16 @@ input double i_riskLimit = 0.01;									// Допустимый риск (ко�
 input double i_fixedVolume = 0.01;									// Фиксированный объем
 input uint i_takeProfit = 300;										// Фиксированный TP (пипсы)
 input uint i_stopLoss = 200;										// Фиксированный SL (пипсы)
-input uint i_fixedTrailTriggerLevel = 0;							// Уровень включения Trailing Stop (пипсы)
-input uint i_fixedTrail = 0;										// Фиксированный Trailing Stop (пипсы)
-input uint i_breakevenTriggerLevel = 0;								// Уровень перевода позиции в безубыток (пипсы)
-input uint i_breakevenValue = 0;									// Величина безубытка (пипсы)
+sinput bool i_useBreakeven = false;									// Включить перевод в безубыток
+input uint i_breakevenTriggerLevel = 100;							// Уровень перевода позиции в безубыток (пипсы)
+input uint i_breakevenValue = 10;									// Величина безубытка (пипсы)
+sinput bool i_useFixedTrailing = false;								// Включить фиксированный Trailing Stop
+input uint i_fixedTrailingTriggerLevel = 110;						// Уровень включения фиксированного Trailing Stop (пипсы)
+input uint i_fixedTrailingValue = 100;								// Величина фиксированного Trailing Stop (пипсы)
+sinput bool i_usePsarTrailing = false;								// Включить Trailing Stop по PSAR
+input ENUM_TIMEFRAMES i_psarTrailingTimeframe = PERIOD_M15;			// Таймфрейм для Trailing Stop по PSAR
+input double i_psarTrailingStep = 0.02;								// Шаг изменения цены для Trailing Stop по PSAR
+input double i_psarTrailingMaxStep = 0.2;							// Максимальный шаг для Trailing Stop по PSAR
 input uint i_maxOpenedPositions = 1;								// Максимальное количество открытых позиций
 
 class CDayHLNG {
@@ -42,15 +48,30 @@ public:
 		if (!checkInputParams()) return false;
 //		checkAndCopyParams(params);
 
-		if (!EventSetTimer(60)) return false;
-
 		m_lowOrderBarTime = m_highOrderBarTime = getLastRateTime();
 		if (m_lowOrderBarTime == 0) return false;
+
+		if (!EventSetTimer(60)) return false;
+
+		if (i_usePsarTrailing) {
+			m_psarHandle = iSAR(m_symbol, i_psarTrailingTimeframe, i_psarTrailingStep, i_psarTrailingMaxStep);
+			if (m_psarHandle == INVALID_HANDLE) {
+				EventKillTimer();
+				return false;
+			}
+		} else {
+			m_psarHandle = INVALID_HANDLE;
+		}
 
 		return true;
 	}
 
-	void Deinit(const int reason) { EventKillTimer(); }
+	void Deinit(const int reason) {
+		EventKillTimer();
+		if (i_usePsarTrailing && m_psarHandle != INVALID_HANDLE) {
+			IndicatorRelease(m_psarHandle);
+		}
+	}
 
 	void OnTick() {
 		if (!checkOpenedPositions()) return;
@@ -58,11 +79,18 @@ public:
 		int positionsTotal = PositionsTotal();
 		for (int i = positionsTotal - 1; i >= 0; i--) {
 			if (checkPositionMagickNumber(i)) {
-				if (i_breakevenTriggerLevel > 0 && checkCanSetBreakeven()) {
-					setPositionBreakeven();
+				ulong ticket = m_positionInfo.Ticket();
+				double tp = m_positionInfo.TakeProfit();
+				double sl = m_positionInfo.StopLoss();
+
+				if (i_useBreakeven && checkCanSetBreakeven(ticket, sl)) {
+					modifyPosition(ticket, sl, tp);
 				}
-				if (i_fixedTrailTriggerLevel > 0 && i_fixedTrail > 0) {
-					trailPosition();
+				if (i_useFixedTrailing && checkCanFixedTrail(ticket, sl)) {
+					modifyPosition(ticket, sl, tp);
+				}
+				if (i_usePsarTrailing && checkCanPsarTrail(ticket, sl)) {
+					modifyPosition(ticket, sl, tp);
 				}
 			}
 		}
@@ -99,6 +127,7 @@ private:
 	datetime m_lowOrderBarTime;
 	ulong m_highTicket;
 	ulong m_lowTicket;
+	int m_psarHandle;
 
 	CTrade m_trade;
 	CSymbolInfo m_symbolInfo;
@@ -289,26 +318,6 @@ private:
 		return OrderSend(request, result);
 	}
 
-	void trailPosition() {
-		ENUM_POSITION_TYPE type = m_positionInfo.PositionType();
-		ulong ticket = m_positionInfo.Ticket();
-		double openPrice = m_positionInfo.PriceOpen(),
-			   currentPrice = m_positionInfo.PriceCurrent(),
-			   tp = m_positionInfo.TakeProfit(),
-			   sl = m_positionInfo.StopLoss();
-
-		double trailLevelDelta = i_fixedTrailTriggerLevel * m_symbolInfo.Point();
-		double trailDelta = i_fixedTrail * m_symbolInfo.Point();
-
-		if (type == POSITION_TYPE_BUY && currentPrice - trailLevelDelta > openPrice && currentPrice - trailDelta > sl) {
-//			PrintFormat("DEBUG: trailPosition: ticket=%I64u, openPrice=%f, currentPrice=%f, fixedDelta=%f", ticket, openPrice, currentPrice, trailDelta);
-			modifyPosition(ticket, currentPrice - trailDelta, tp);
-		} else if (type == POSITION_TYPE_SELL && currentPrice + trailLevelDelta < openPrice && currentPrice + trailDelta < sl) {
-//			PrintFormat("DEBUG: trailPosition: ticket=%I64u, openPrice=%f, currentPrice=%f, fixedDelta=%f", ticket, openPrice, currentPrice, trailDelta);
-			modifyPosition(ticket, currentPrice + trailDelta, tp);
-		}
-	}
-
 	int calcPoints(double pricesDelta) {
 		return (int)(pricesDelta / m_symbolInfo.Point());
 	}
@@ -317,36 +326,67 @@ private:
 		return points * m_symbolInfo.Point();
 	}
 
-	bool checkCanSetBreakeven() {
-		ENUM_POSITION_TYPE type = m_positionInfo.PositionType();
-		double openPrice = m_positionInfo.PriceOpen(),
-			   currentPrice = m_positionInfo.PriceCurrent(),
-			   sl = m_positionInfo.StopLoss();
-		return ((type == POSITION_TYPE_BUY &&
-				 calcPoints(sl - openPrice) < (int)i_breakevenValue &&
-				 calcPoints(currentPrice - openPrice) >= (int)i_breakevenTriggerLevel) ||
-				(type == POSITION_TYPE_SELL &&
-				 calcPoints(openPrice - sl) < (int)i_breakevenValue &&
-				 calcPoints(openPrice - currentPrice) >= (int)i_breakevenTriggerLevel));
+	bool checkCanSetBreakeven(ulong ticket, double& sl) {
+		if (i_breakevenTriggerLevel == 0) return false;
+		CPositionInfo pi;
+		pi.SelectByTicket(ticket);
+		ENUM_POSITION_TYPE type = pi.PositionType();
+		double openPrice = pi.PriceOpen(),
+			   currentPrice = pi.PriceCurrent();
+		sl = pi.StopLoss();
 
-	}
-
-	void setPositionBreakeven() {
-		ENUM_POSITION_TYPE type = m_positionInfo.PositionType();
-		ulong ticket = m_positionInfo.Ticket();
-		double openPrice = m_positionInfo.PriceOpen(),
-			   currentPrice = m_positionInfo.PriceCurrent(),
-			   tp = m_positionInfo.TakeProfit(),
-			   sl = m_positionInfo.StopLoss();
-
-		if (type == POSITION_TYPE_BUY) {
-//			PrintFormat("DEBUG: trailPosition: ticket=%I64u, openPrice=%f, currentPrice=%f, fixedDelta=%f", ticket, openPrice, currentPrice, trailDelta);
-			modifyPosition(ticket, openPrice + calcPriceDelta(i_breakevenValue), tp);
-		} else if (type == POSITION_TYPE_SELL) {
-//			PrintFormat("DEBUG: trailPosition: ticket=%I64u, openPrice=%f, currentPrice=%f, fixedDelta=%f", ticket, openPrice, currentPrice, trailDelta);
-			modifyPosition(ticket, openPrice - calcPriceDelta(i_breakevenValue), tp);
+		if (type == POSITION_TYPE_BUY && calcPoints(sl - openPrice) < (int)i_breakevenValue && calcPoints(currentPrice - openPrice) >= (int)i_breakevenTriggerLevel) {
+			sl = openPrice + calcPriceDelta(i_breakevenValue);
+			return true;
+		} else if (type == POSITION_TYPE_SELL && calcPoints(openPrice - sl) < (int)i_breakevenValue && calcPoints(openPrice - currentPrice) >= (int)i_breakevenTriggerLevel) {
+			sl = openPrice - calcPriceDelta(i_breakevenValue);
+			return true;
 		}
+		return false;
 	}
+
+	bool checkCanFixedTrail(ulong ticket, double &sl) {
+		if (i_fixedTrailingValue == 0) return false;
+		CPositionInfo pi;
+		pi.SelectByTicket(ticket);
+		ENUM_POSITION_TYPE type = pi.PositionType();
+		double openPrice = pi.PriceOpen(),
+			   currentPrice = pi.PriceCurrent();
+		sl = pi.StopLoss();
+
+		double trailLevelDelta = i_fixedTrailingTriggerLevel * m_symbolInfo.Point();
+		double trailDelta = i_fixedTrailingValue * m_symbolInfo.Point();
+
+		if (type == POSITION_TYPE_BUY && currentPrice - trailLevelDelta > openPrice && currentPrice - trailDelta > sl) {
+			sl = currentPrice - trailDelta;
+			return true;
+		} else if (type == POSITION_TYPE_SELL && currentPrice + trailLevelDelta < openPrice && currentPrice + trailDelta < sl) {
+			sl = currentPrice + trailDelta;
+			return true;
+		}
+		return false;
+	}
+
+	bool checkCanPsarTrail(ulong ticket, double &sl) {
+		CPositionInfo pi;
+		pi.SelectByTicket(ticket);
+		ENUM_POSITION_TYPE type = pi.PositionType();
+		double openPrice = pi.PriceOpen(),
+			   currentPrice = pi.PriceCurrent();
+		sl = pi.StopLoss();
+
+		double buffer[2];
+		int n = CopyBuffer(m_psarHandle, 0, 0, 2, buffer);
+		if (n == -1) return false;
+
+		if ((type == POSITION_TYPE_BUY && buffer[1] > buffer[0] && buffer[0] > openPrice && buffer[0] < currentPrice && buffer[0] > sl) ||
+		    (type == POSITION_TYPE_SELL && buffer[1] < buffer[0] && buffer[0] < openPrice && buffer[0] > currentPrice && buffer[0] < sl)) {
+			sl = buffer[0];
+			return true;
+		}
+		return false;
+	}
+
 /*
 	void calcStartMoment();
 	void calcStopMoment();

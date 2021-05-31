@@ -20,6 +20,51 @@ public:
         return true;
     }
 
+    long getMagic() {
+        if (!checkExists()) return 0;
+        return PositionGetInteger(POSITION_MAGIC);
+    }
+
+    ENUM_POSITION_TYPE getType() {
+        if (!checkExists()) return 0;
+        return (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+    }
+
+    double getVolume() {
+        if (!checkExists()) return 0;
+        return PositionGetDouble(POSITION_VOLUME);
+    }
+
+    double getPriceOpen() {
+        if (!checkExists()) return 0;
+        return PositionGetDouble(POSITION_PRICE_OPEN);
+    }
+
+    double getPriceCurrent() {
+        if (!checkExists()) return 0;
+        return PositionGetDouble(POSITION_PRICE_CURRENT);
+    }
+
+    double getSL() {
+        if (!checkExists()) return 0;
+        return PositionGetDouble(POSITION_SL);
+    }
+
+    double getTP() {
+        if (!checkExists()) return 0;
+        return PositionGetDouble(POSITION_TP);
+    }
+
+    double getSwap() {
+        if (!checkExists()) return 0;
+        return PositionGetDouble(POSITION_SWAP);
+    }
+
+    double getProfit() {
+        if (!checkExists()) return 0;
+        return PositionGetDouble(POSITION_PROFIT);
+    }
+
     bool modify(sl, tp) {
         if (!checkExists()) return false;
         MqlTradeRequest request;
