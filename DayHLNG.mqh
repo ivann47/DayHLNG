@@ -32,6 +32,7 @@ input ENUM_TIMEFRAMES i_psarTrailingTimeframe = PERIOD_M15;			// Таймфре�
 input double i_psarTrailingStep = 0.02;								// Шаг изменения цены для Trailing Stop по PSAR
 input double i_psarTrailingMaxStep = 0.2;							// Максимальный шаг для Trailing Stop по PSAR
 input uint i_maxOpenedPositions = 1;								// Максимальное количество открытых позиций
+sinput string i_orderComment = "DayHLNG";							// Комментарий к ордерам
 
 class CDayHLNG {
 public:
@@ -149,7 +150,7 @@ private:
 	}
 
 	string getOrderComment() {
-		return IntegerToString(i_magicNumber);
+		return i_orderComment;
 	}
 
 	uint getOpenedPositionsNumber() {
