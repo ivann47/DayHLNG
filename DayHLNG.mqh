@@ -1,8 +1,16 @@
+//
+// DayHLNG.mqh
+// Alexey Ivannikov (alexey.a.ivannikov@gmail.com)
+//
+
+#property version "1.12"
+#property copyright "2021, Alexey Ivannikov (alexey.a.ivannikov@gmail.com)"
+#property description "Расширенная версия советника, реализующего стратегию DayHL"
+
 #include <Trade/Trade.mqh>
 #include <Trade/SymbolInfo.mqh>
 #include <Trade/AccountInfo.mqh>
 #include <Trade/PositionInfo.mqh>
-//#include "ExpertParams.mqh"
 
 enum ENUM_ORDER_POSITION {
 	ORDER_POSITION_SHADOW,
@@ -40,34 +48,34 @@ public:
 		m_highTicket = m_lowTicket = 0;
 	};
 
-	bool Init(const string symbol) {
-		m_symbol = symbol;
-		if (!m_symbolInfo.Name(m_symbol)) return false;
+	int OnInit() {
+		m_symbol = Symbol();
+		if (!m_symbolInfo.Name(m_symbol)) return INIT_FAILED;
 
 		m_trade.SetExpertMagicNumber(i_magicNumber);
 
-		if (!checkInputParams()) return false;
+		if (!checkInputParams()) return INIT_FAILED;
 //		checkAndCopyParams(params);
 
 		m_lowOrderBarTime = m_highOrderBarTime = getLastRateTime();
-		if (m_lowOrderBarTime == 0) return false;
+		if (m_lowOrderBarTime == 0) return INIT_FAILED;
 
-		if (!EventSetTimer(60)) return false;
+		if (!EventSetTimer(60)) return INIT_FAILED;
 
 		if (i_usePsarTrailing) {
 			m_psarHandle = iSAR(m_symbol, i_psarTrailingTimeframe, i_psarTrailingStep, i_psarTrailingMaxStep);
 			if (m_psarHandle == INVALID_HANDLE) {
 				EventKillTimer();
-				return false;
+				return INIT_FAILED;
 			}
 		} else {
 			m_psarHandle = INVALID_HANDLE;
 		}
 
-		return true;
+		return INIT_SUCCEEDED;
 	}
 
-	void Deinit(const int reason) {
+	void OnDeinit(const int reason) {
 		EventKillTimer();
 		if (i_usePsarTrailing && m_psarHandle != INVALID_HANDLE) {
 			IndicatorRelease(m_psarHandle);
