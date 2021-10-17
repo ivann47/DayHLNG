@@ -3,7 +3,7 @@
 // Alexey Ivannikov (alexey.a.ivannikov@gmail.com)
 //
 
-#property version "1.12"
+#property version "2.2"
 #property copyright "2021, Alexey Ivannikov (alexey.a.ivannikov@gmail.com)"
 #property description "Расширенная версия советника, реализующего стратегию DayHL"
 
@@ -46,6 +46,7 @@ class CDayHLNG {
 public:
 	CDayHLNG::CDayHLNG() {
 		m_highTicket = m_lowTicket = 0;
+		m_lastRateTime = 0;
 	};
 
 	int OnInit() {
@@ -80,10 +81,14 @@ public:
 		if (i_usePsarTrailing && m_psarHandle != INVALID_HANDLE) {
 			IndicatorRelease(m_psarHandle);
 		}
+		m_lastRateTime = 0;
 	}
 
 	void OnTick() {
 		if (!checkOpenedPositions()) return;
+
+		m_symbolInfo.Refresh();
+		m_symbolInfo.RefreshRates();
 
 		int positionsTotal = PositionsTotal();
 		for (int i = positionsTotal - 1; i >= 0; i--) {
@@ -98,8 +103,12 @@ public:
 				if (i_useFixedTrailing && checkCanFixedTrail(ticket, sl)) {
 					modifyPosition(ticket, sl, tp);
 				}
-				if (i_usePsarTrailing && checkCanPsarTrail(ticket, sl)) {
-					modifyPosition(ticket, sl, tp);
+				if (i_usePsarTrailing) {
+					if (checkCanPsarTrail(ticket, sl)) {
+						modifyPosition(ticket, sl, tp);
+					} else if (checkCanOpenReversePosition(ticket)) {
+						openReversePosition(ticket);
+					}
 				}
 			}
 		}
@@ -109,6 +118,8 @@ public:
 		datetime t = getLastRateTime();
 
 		if ((t == m_lowOrderBarTime && t == m_highOrderBarTime) || !checkAllowTrade(t)) return;
+
+		m_reversePositionOpened = false;
 
 		MqlRates rates[1];
 		if (CopyRates(m_symbol, PERIOD_D1, 1, 1, rates) == -1) {
@@ -137,6 +148,8 @@ private:
 	ulong m_highTicket;
 	ulong m_lowTicket;
 	int m_psarHandle;
+	datetime m_lastRateTime;
+	bool m_reversePositionOpened;
 
 	CTrade m_trade;
 	CSymbolInfo m_symbolInfo;
@@ -153,12 +166,20 @@ private:
 
 	datetime getLastRateTime() {
 		datetime buf[1];
-		if (CopyTime(m_symbol, PERIOD_D1, 0, 1, buf) == 1) { return buf[0]; }
-		return 0;
+		if (CopyTime(m_symbol, PERIOD_D1, 0, 1, buf) == 1) {
+			m_lastRateTime = buf[0];
+		}
+		return m_lastRateTime;
 	}
 
 	string getOrderComment() {
 		return i_orderComment;
+	}
+
+	string getReversePositionComment() {
+		string result;
+		StringConcatenate(result, getOrderComment(), " reverse");
+		return result;
 	}
 
 	uint getOpenedPositionsNumber() {
@@ -259,8 +280,8 @@ private:
 		}
 		priceWarningPrinted = false;
 
-		double tp = price + i_takeProfit * m_symbolInfo.Point();
-		double sl = price - i_stopLoss * m_symbolInfo.Point();
+		double tp = getTP(price, ORDER_TYPE_BUY);
+		double sl = getSL(price, ORDER_TYPE_BUY);
 		double volume = i_fixedVolume > 0 ? i_fixedVolume : calcVolume(price, sl, ORDER_TYPE_BUY);
 		if (volume < m_symbolInfo.LotsMin()) {
 			if (!volumeWargingPrinted) {
@@ -293,8 +314,8 @@ private:
 		}
 		priceWarningPrinted = false;
 
-		double tp = price - i_takeProfit * m_symbolInfo.Point();
-		double sl = price + i_stopLoss * m_symbolInfo.Point();
+		double tp = getTP(price, ORDER_TYPE_SELL);
+		double sl = getSL(price, ORDER_TYPE_SELL);
 		double volume = i_fixedVolume > 0 ? i_fixedVolume : calcVolume(price, sl, ORDER_TYPE_SELL);
 		if (volume < m_symbolInfo.LotsMin()) {
 			if (!volumeWargingPrinted) {
@@ -398,5 +419,106 @@ private:
 			return true;
 		}
 		return false;
+	}
+
+	bool checkCanOpenReversePosition(ulong ticket) {
+		if (m_reversePositionOpened) {
+//			Print("DEBUG: Позиция уже открывалась в текущих сутках");
+			return false;
+		}
+
+		CPositionInfo pi;
+		pi.SelectByTicket(ticket);
+		if (pi.Time() < m_lastRateTime) {
+//			Print("DEBUG: Позиция открыта раньше начала текущих суток");
+			return false;
+		}
+
+		ENUM_POSITION_TYPE type = pi.PositionType();
+		double price = pi.PriceOpen(),
+			   sl = pi.StopLoss();
+
+		if ((type == POSITION_TYPE_BUY && price < sl) || (type == POSITION_TYPE_SELL && price > sl)) {
+//			Print("DEBUG: Позиция в безубытке");
+			return false;
+		}
+
+		double buffer[2];
+		int n = CopyBuffer(m_psarHandle, 0, 0, 2, buffer);
+		if (n == -1) return false;
+
+		price = pi.PriceCurrent();
+
+		if ((price < buffer[0] && price < buffer[1]) || (price > buffer[0] && price > buffer[1])) {
+			Print("DEBUG: Инверсия параболика не произошла");
+			return false;
+		}
+
+		return true;
+	}
+
+	ENUM_ORDER_TYPE getReverseOrderType(ENUM_POSITION_TYPE type) {
+		if (type == POSITION_TYPE_BUY) {
+			return ORDER_TYPE_SELL;
+		} else if (type == POSITION_TYPE_SELL) {
+			return ORDER_TYPE_BUY;
+		}
+		return -1;
+	}
+
+	double getMarketPrice(ENUM_ORDER_TYPE type) {
+		if (type == ORDER_TYPE_BUY) {
+			return m_symbolInfo.Ask();
+		} else if (type == ORDER_TYPE_SELL) {
+			return m_symbolInfo.Bid();
+		}
+		return -1;
+	}
+
+	double getTP(double price, ENUM_ORDER_TYPE type) {
+		double delta = calcPriceDelta(i_takeProfit);
+
+		if (type == ORDER_TYPE_BUY) {
+			return price + delta;
+		} else if (type == ORDER_TYPE_SELL) {
+			return price - delta;
+		}
+		return -1;
+	}
+
+	double getSL(double price, ENUM_ORDER_TYPE type) {
+		double delta = calcPriceDelta(i_stopLoss);
+
+		if (type == ORDER_TYPE_BUY) {
+			return price - delta;
+		} else if (type == ORDER_TYPE_SELL) {
+			return price + delta;
+		}
+		return -1;
+	}
+
+	bool openReversePosition(ulong ticket) {
+		CPositionInfo pi;
+		pi.SelectByTicket(ticket);
+
+		ENUM_ORDER_TYPE type = getReverseOrderType(pi.PositionType());
+		double volume = pi.Volume();
+		double price = getMarketPrice(type);
+		double tp = getTP(price, type);
+		double sl = getSL(price, type);
+
+		if (!m_trade.PositionOpen(m_symbol, type, volume, price, sl, tp, getReversePositionComment()) ||
+			m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
+			return false;
+		}
+
+		PrintFormat(
+			"Reverse position opened: volume=%f, price=%f, sl=%f, tp=%f",
+			volume, price, sl, tp
+		);
+
+		m_reversePositionOpened = true;
+
+		return true;
 	}
 };
