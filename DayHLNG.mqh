@@ -106,7 +106,7 @@ public:
 				if (i_usePsarTrailing) {
 					if (checkCanPsarTrail(ticket, sl)) {
 						modifyPosition(ticket, sl, tp);
-					} else if (checkCanOpenReversePosition(ticket)) {
+					} else if (checkCanOpenReversePosition(m_positionInfo)) {
 						openReversePosition(ticket);
 					}
 				}
@@ -421,35 +421,57 @@ private:
 		return false;
 	}
 
-	bool checkCanOpenReversePosition(ulong ticket) {
+	bool isPositionInBreakeven(CPositionInfo& pi) {
+		ENUM_POSITION_TYPE type = pi.PositionType();
+		double price = pi.PriceOpen();
+		double sl = pi.StopLoss();
+
+		return (type == POSITION_TYPE_BUY && price < sl) ||
+			(type == POSITION_TYPE_SELL && price > sl);
+	}
+
+	bool isPositionProfitable(CPositionInfo& pi) {
+		ENUM_POSITION_TYPE type = pi.PositionType();
+		double priceOpen = pi.PriceOpen();
+		double priceCurrent = pi.PriceCurrent();
+
+		return (type == POSITION_TYPE_BUY && priceOpen < priceCurrent) ||
+			(type == POSITION_TYPE_SELL && priceOpen > priceCurrent);
+	}
+
+	bool checkPsarInversionOccured(CPositionInfo& pi, int psarHandle) {
+		double buffer[2];
+
+		int n = CopyBuffer(psarHandle, 0, 0, 2, buffer);
+		if (n == -1) return false;
+
+		double price = pi.PriceCurrent();
+
+		return (price < buffer[0] && price > buffer[1]) ||
+			(price > buffer[0] && price < buffer[1]);
+	}
+
+	bool checkCanOpenReversePosition(CPositionInfo& pi) {
 		if (m_reversePositionOpened) {
 //			Print("DEBUG: Позиция уже открывалась в текущих сутках");
 			return false;
 		}
 
-		CPositionInfo pi;
-		pi.SelectByTicket(ticket);
 		if (pi.Time() < m_lastRateTime) {
 //			Print("DEBUG: Позиция открыта раньше начала текущих суток");
 			return false;
 		}
 
-		ENUM_POSITION_TYPE type = pi.PositionType();
-		double price = pi.PriceOpen(),
-			   sl = pi.StopLoss();
-
-		if ((type == POSITION_TYPE_BUY && price < sl) || (type == POSITION_TYPE_SELL && price > sl)) {
+		if (isPositionInBreakeven(pi)) {
 //			Print("DEBUG: Позиция в безубытке");
 			return false;
 		}
 
-		double buffer[2];
-		int n = CopyBuffer(m_psarHandle, 0, 0, 2, buffer);
-		if (n == -1) return false;
+		if (isPositionProfitable(pi)) {
+			return false;
+		}
 
-		price = pi.PriceCurrent();
-
-		if ((price < buffer[0] && price < buffer[1]) || (price > buffer[0] && price > buffer[1])) {
+		if (!checkPsarInversionOccured(pi, m_psarHandle)) {
 			Print("DEBUG: Инверсия параболика не произошла");
 			return false;
 		}
