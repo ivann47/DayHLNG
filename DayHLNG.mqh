@@ -2,11 +2,7 @@
 // DayHLNG.mqh
 // Alexey Ivannikov (alexey.a.ivannikov@gmail.com)
 //
-
-#property version "2.2"
-#property copyright "2021, Alexey Ivannikov (alexey.a.ivannikov@gmail.com)"
-#property description "Расширенная версия советника, реализующего стратегию DayHL"
-
+//---------------------------------------------------------------------------------------------------------------------
 #include <Trade/Trade.mqh>
 #include <Trade/SymbolInfo.mqh>
 #include <Trade/AccountInfo.mqh>
