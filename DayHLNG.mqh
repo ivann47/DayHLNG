@@ -447,8 +447,10 @@ private:
 
 		double price = pi.PriceCurrent();
 
-		return (price < buffer[0] && price > buffer[1]) ||
-			(price > buffer[0] && price < buffer[1]);
+		ENUM_POSITION_TYPE type = pi.PositionType();
+
+		return (type == POSITION_TYPE_BUY && buffer[0] < price && price < buffer[1]) ||
+			   (type == POSITION_TYPE_SELL && buffer[0] > price && price > buffer[1]);
 	}
 
 	bool checkCanOpenReversePosition(CPositionInfo& pi) {
@@ -472,7 +474,7 @@ private:
 		}
 
 		if (!checkPsarInversionOccured(pi, m_psarHandle)) {
-			Print("DEBUG: Инверсия параболика не произошла");
+//			Print("DEBUG: Инверсия параболика не произошла");
 			return false;
 		}
 
