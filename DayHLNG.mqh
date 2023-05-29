@@ -37,6 +37,9 @@ input double i_psarTrailingStep = 0.02;								// Шаг изменения це
 input double i_psarTrailingMaxStep = 0.2;							// Максимальный шаг для Trailing Stop по PSAR
 input uint i_maxOpenedPositions = 1;								// Максимальное количество открытых позиций
 sinput string i_orderComment = "DayHLNG";							// Комментарий к ордерам
+input uint i_maxAliveTime = 0; 										// Максимальное время жизни прямых позиций в часах
+input uint i_maxAliveTimeReverse = 0;	 							// Максимальное время жизни реверсных позиций в часах
+sinput bool i_closeStraightPosion = false;							// Закрывать прямую позицию при открытии реверсной
 
 class CDayHLNG {
 public:
@@ -111,6 +114,8 @@ public:
 	}
 
 	void OnTimer() {
+		closeExpiredPositions();
+
 		datetime t = getLastRateTime();
 
 		if ((t == m_lowOrderBarTime && t == m_highOrderBarTime) || !checkAllowTrade(t)) return;
@@ -172,9 +177,8 @@ private:
 		return i_orderComment;
 	}
 
-	string getReversePositionComment() {
-		string result;
-		StringConcatenate(result, getOrderComment(), " reverse");
+	string getReversePositionComment(ulong ticket) {
+		string result = StringFormat("%s reverse %u", getOrderComment(), ticket);
 		return result;
 	}
 
@@ -188,6 +192,32 @@ private:
 			if (magicNumber == i_magicNumber) positionsNumber++;
 		}
 		return positionsNumber;
+	}
+
+	bool isPositionReverse(CPositionInfo& pi) {
+		return StringFind(pi.Comment(), "reverse") != -1;
+	}
+
+	bool isPositionExpired(CPositionInfo& pi) {
+		uint maxAliveTime = isPositionReverse(pi) ? i_maxAliveTimeReverse > 0 : i_maxAliveTime;
+
+		if (maxAliveTime == 0) return false;
+
+		datetime openTime = m_positionInfo.Time();
+		datetime now = TimeCurrent();
+		return now - openTime >= maxAliveTime * 3600;
+	}
+
+	void closeExpiredPositions() {
+		int positionsTotal = PositionsTotal();
+		for (int i = positionsTotal - 1; i >= 0; i--) {
+			if (!checkPositionMagickNumber(i)) continue;
+			CPositionInfo pi;
+			pi.SelectByIndex(i);
+			if (isPositionExpired(pi)) {
+				m_trade.PositionClose(pi.Ticket());
+			}
+		}
 	}
 
 	bool checkAllowTrade(datetime t) {
@@ -527,7 +557,7 @@ private:
 		double tp = getTP(price, type);
 		double sl = getSL(price, type);
 
-		if (!m_trade.PositionOpen(m_symbol, type, volume, price, sl, tp, getReversePositionComment()) ||
+		if (!m_trade.PositionOpen(m_symbol, type, volume, price, sl, tp, getReversePositionComment(ticket)) ||
 			m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
 			return false;
 		}
@@ -538,6 +568,12 @@ private:
 		);
 
 		m_reversePositionOpened = true;
+
+		if (i_closeStraightPosion) {
+			if (!m_trade.PositionClose(ticket) || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
+				return false;
+			};
+		}
 
 		return true;
 	}
