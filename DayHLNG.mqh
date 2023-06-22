@@ -597,7 +597,7 @@ private:
 		m_symbolInfo.RefreshRates();
 
 		double buffer[1];
-		int n = CopyBuffer(m_maHandle, 0, 1, 2, buffer);
+		int n = CopyBuffer(m_maHandle, 0, 1, 1, buffer);
 
 		return (m_symbolInfo.Ask() >= buffer[0] + i_value) || (m_symbolInfo.Bid() <= buffer[0] - i_value);
 	}
