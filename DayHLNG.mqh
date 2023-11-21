@@ -40,6 +40,12 @@ sinput string i_orderComment = "DayHLNG";							// Комментарий к о�
 input uint i_maxAliveTime = 0; 										// Максимальное время жизни прямых позиций в часах
 input uint i_maxAliveTimeReverse = 0;	 							// Максимальное время жизни реверсных позиций в часах
 sinput bool i_closeStraightPosion = false;							// Закрывать прямую позицию при открытии реверсной
+input double i_value = 0;               							// Смещение верхней и нижней границ
+input int i_period = 30;             								// Период усреднения
+input ENUM_MA_METHOD i_method = MODE_EMA;       					// Метод усреднения
+input ENUM_APPLIED_PRICE i_price = PRICE_CLOSE;     				// Цена для расчёта
+input int i_shift = 0;               								// Смещение
+sinput bool i_useInverse = true;									// Выставлять инверсные позиции
 
 class CDayHLNG {
 public:
@@ -72,6 +78,8 @@ public:
 			m_psarHandle = INVALID_HANDLE;
 		}
 
+		m_maHandle = iMA(m_symbol, PERIOD_D1, i_period, i_shift, i_method, i_price);
+
 		return INIT_SUCCEEDED;
 	}
 
@@ -80,6 +88,10 @@ public:
 		if (i_usePsarTrailing && m_psarHandle != INVALID_HANDLE) {
 			IndicatorRelease(m_psarHandle);
 		}
+		if (m_maHandle != m_maHandle) {
+			IndicatorRelease(m_maHandle);
+		}
+
 		m_lastRateTime = 0;
 	}
 
@@ -133,12 +145,48 @@ public:
 		m_symbolInfo.Refresh();
 		m_symbolInfo.RefreshRates();
 
-		if (t > m_highOrderBarTime && openBuyOrder(rates[0])) {
-			m_highOrderBarTime = t;
+		double buffer[1];
+		if (CopyBuffer(m_maHandle, 0, 1, 1, buffer) == -1) {
+			PrintFormat("ERROR: CopyBuffer: %d", GetLastError());
+			return;
 		}
 
-		if (t > m_lowOrderBarTime && openSellOrder(rates[0])) {
-			m_lowOrderBarTime = t;
+		PrintFormat("DEBUG: OnTimer: low=%f, high=%f, MA=%f, i_value=%f", rates[0].low, rates[0].high, buffer[0], i_value);
+
+		if (t > m_highOrderBarTime) {
+			if (rates[0].high > buffer[0] + i_value) {
+				if (i_useInverse) {
+					if (m_symbolInfo.Bid() > rates[0].high && openSellStopOrder(rates[0].high)) {
+						PrintFormat("DEBUG: OnTimer: openSellStop: rates[0].high=%f, buffer[0] + i_value=%f", rates[0].high, buffer[0] + i_value);
+						m_highOrderBarTime = t;
+					} else if (m_symbolInfo.Bid() < rates[0].high && openSellLimitOrder(rates[0].high)) {
+						PrintFormat("DEBUG: OnTimer: openSellLimitOrder: rates[0].high=%f, buffer[0] + i_value=%f", rates[0].high, buffer[0] + i_value);
+						m_highOrderBarTime = t;
+					}
+				} else {
+					m_highOrderBarTime = t;
+				}
+			} else if (openBuyStopOrder(getBuyPrice(rates[0]))) {
+				m_highOrderBarTime = t;
+			}
+		}
+
+		if (t > m_lowOrderBarTime) {
+			if (rates[0].low < buffer[0] - i_value) {
+				if (i_useInverse) {
+					if (m_symbolInfo.Ask() < rates[0].low && openBuyStopOrder(rates[0].low)) {
+						PrintFormat("DEBUG: OnTimer: openBuyStopOrder: rates[0].high=%f, buffer[0] + i_value=%f", rates[0].high, buffer[0] + i_value);
+						m_lowOrderBarTime = t;
+					} else if (m_symbolInfo.Ask() > rates[0].low && openBuyLimitOrder(rates[0].low)) {
+						PrintFormat("DEBUG: OnTimer: openBuyLimitOrder: rates[0].high=%f, buffer[0] + i_value=%f", rates[0].high, buffer[0] + i_value);
+						m_lowOrderBarTime = t;
+					}
+				} else {
+					m_lowOrderBarTime = t;
+				}
+			} else if (openSellStopOrder(getSellPrice(rates[0]))) {
+				m_lowOrderBarTime = t;
+			}
 		}
 	}
 
@@ -149,6 +197,7 @@ private:
 	ulong m_highTicket;
 	ulong m_lowTicket;
 	int m_psarHandle;
+	int m_maHandle;
 	datetime m_lastRateTime;
 	bool m_reversePositionOpened;
 
@@ -292,11 +341,10 @@ private:
 		return price - i_ordersOffset * m_symbolInfo.Point();
 	}
 
-	bool openBuyOrder(const MqlRates& rate) {
+	bool openBuyStopOrder(double price) {
 		static bool priceWarningPrinted = false;
 		static bool volumeWargingPrinted = false;
 
-		double price = getBuyPrice(rate);
 		if (price < m_symbolInfo.Ask()) {
 			if (!priceWarningPrinted) {
 				PrintFormat("WARNING: price is less than Ask price: %f < %f", price, m_symbolInfo.Ask());
@@ -326,11 +374,43 @@ private:
 		return true;
 	}
 
-	bool openSellOrder(const MqlRates& rate) {
+	bool openBuyLimitOrder(double price) {
 		static bool priceWarningPrinted = false;
 		static bool volumeWargingPrinted = false;
 
-		double price = getSellPrice(rate);
+		if (price > m_symbolInfo.Ask()) {
+			if (!priceWarningPrinted) {
+				PrintFormat("WARNING: price is more than Ask price: %f < %f", price, m_symbolInfo.Ask());
+				priceWarningPrinted = true;
+			}
+			return false;
+		}
+		priceWarningPrinted = false;
+
+		double tp = getTP(price, ORDER_TYPE_BUY);
+		double sl = getSL(price, ORDER_TYPE_BUY);
+		double volume = i_fixedVolume > 0 ? i_fixedVolume : calcVolume(price, sl, ORDER_TYPE_BUY);
+		if (volume < m_symbolInfo.LotsMin()) {
+			if (!volumeWargingPrinted) {
+				PrintFormat("WARNING: Buy volume too small: %f", volume);
+				volumeWargingPrinted = true;
+			}
+			return false;
+		}
+		volumeWargingPrinted = false;
+
+		bool success = m_trade.BuyLimit(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment());
+		if (!success || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
+			return false;
+		}
+		m_highTicket = m_trade.ResultOrder();
+		return true;
+	}
+
+	bool openSellStopOrder(double price) {
+		static bool priceWarningPrinted = false;
+		static bool volumeWargingPrinted = false;
+
 		if (price > m_symbolInfo.Bid()) {
 			if (!priceWarningPrinted) {
 				PrintFormat("WARNING: price is more than Bid price: %f > %f", price, m_symbolInfo.Bid());
@@ -353,6 +433,39 @@ private:
 		volumeWargingPrinted = false;
 
 		bool success = m_trade.SellStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment());
+		if (!success || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
+			return false;
+		}
+		m_lowTicket = m_trade.ResultOrder();
+		return true;
+	}
+
+	bool openSellLimitOrder(double price) {
+		static bool priceWarningPrinted = false;
+		static bool volumeWargingPrinted = false;
+
+		if (price < m_symbolInfo.Bid()) {
+			if (!priceWarningPrinted) {
+				PrintFormat("WARNING: price is less than Bid price: %f > %f", price, m_symbolInfo.Bid());
+				priceWarningPrinted = true;
+			}
+			return false;
+		}
+		priceWarningPrinted = false;
+
+		double tp = getTP(price, ORDER_TYPE_SELL);
+		double sl = getSL(price, ORDER_TYPE_SELL);
+		double volume = i_fixedVolume > 0 ? i_fixedVolume : calcVolume(price, sl, ORDER_TYPE_SELL);
+		if (volume < m_symbolInfo.LotsMin()) {
+			if (!volumeWargingPrinted) {
+				PrintFormat("WARNING: Sell volume too small");
+				volumeWargingPrinted = true;
+			}
+			return true;
+		}
+		volumeWargingPrinted = false;
+
+		bool success = m_trade.SellLimit(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment());
 		if (!success || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
 			return false;
 		}
@@ -479,6 +592,16 @@ private:
 			   (type == POSITION_TYPE_SELL && buffer[0] > price && price > buffer[1]);
 	}
 
+	bool checkPriceOutOfRange() {
+		m_symbolInfo.Refresh();
+		m_symbolInfo.RefreshRates();
+
+		double buffer[1];
+		int n = CopyBuffer(m_maHandle, 0, 1, 1, buffer);
+
+		return (m_symbolInfo.Ask() >= buffer[0] + i_value) || (m_symbolInfo.Bid() <= buffer[0] - i_value);
+	}
+
 	bool checkCanOpenReversePosition(CPositionInfo& pi) {
 		if (m_reversePositionOpened) {
 //			Print("DEBUG: Позиция уже открывалась в текущих сутках");
@@ -501,6 +624,10 @@ private:
 
 		if (!checkPsarInversionOccured(pi, m_psarHandle)) {
 //			Print("DEBUG: Инверсия параболика не произошла");
+			return false;
+		}
+
+		if (checkPriceOutOfRange()) {
 			return false;
 		}
 
