@@ -42,9 +42,9 @@ input double i_psarTrailingStep = 0.02;								// Шаг изменения це
 input double i_psarTrailingMaxStep = 0.2;							// Максимальный шаг для Trailing Stop по PSAR
 input uint i_maxOpenedPositions = 1;								// Максимальное количество открытых позиций
 sinput string i_orderComment = "DayHLNG";							// Комментарий к ордерам
-input uint i_maxAliveTime = 0; 										// Максимальное время жизни прямых позиций в часах
-input uint i_maxAliveTimeReverse = 0;	 							// Максимальное время жизни реверсных позиций в часах
-sinput bool i_closeStraightPosion = false;							// Закрывать прямую позицию при открытии реверсной
+//input uint i_maxAliveTime = 0; 										// Максимальное время жизни прямых позиций в часах
+//input uint i_maxAliveTimeReverse = 0;	 							// Максимальное время жизни реверсных позиций в часах
+//sinput bool i_closeStraightPosion = false;							// Закрывать прямую позицию при открытии реверсной
 input int i_period = 30;             								// Период усреднения
 input ENUM_MA_METHOD i_method = MODE_EMA;       					// Метод усреднения
 input ENUM_APPLIED_PRICE i_price = PRICE_CLOSE;     				// Цена для расчёта
@@ -129,13 +129,15 @@ public:
 	}
 
 	void OnTimer() {
-		closeExpiredPositions();
+//		closeExpiredPositions();
+
+		removeClosedPositions();
 
 		datetime t = getLastRateTime();
 
 		if ((t == m_lowOrderBarTime && t == m_highOrderBarTime) || !checkAllowTrade(t)) return;
 
-		m_reversePositionOpened = false;
+//		m_reversePositionOpened = false;
 
 		MqlRates rate;
 
@@ -195,13 +197,30 @@ private:
 //	int m_maHandle;
 	int m_envelopesHandle;
 	datetime m_lastRateTime;
-	bool m_reversePositionOpened;
+//	bool m_reversePositionOpened;
+	ulong m_positionsWithReverse[];
 
 	CTrade m_trade;
 	CSymbolInfo m_symbolInfo;
 	COrderInfo m_orderInfo;
 	CPositionInfo m_positionInfo;
 	CAccountInfo m_accountInfo;
+
+	void removeClosedPositions() {
+		ulong buf[];
+
+		uint size = m_positionsWithReverse.Size();
+
+		for (uint i = 0; i < size; i++) {
+			if (m_positionInfo.SelectByTicket(m_positionsWithReverse[i])) {
+				uint s = buf.Size();
+				ArrayResize(buf, s + 1, 1000);
+				buf[s] = m_positionsWithReverse[i];
+			}
+		}
+
+		ArrayCopy(m_positionsWithReverse, buf);
+	}
 
 	bool getPrevDayRate(MqlRates& rate) {
 		MqlRates rates[1];
@@ -264,13 +283,16 @@ private:
 		return m_lastRateTime;
 	}
 
-	string getOrderComment() {
-		return i_orderComment;
+	string getOrderComment(bool inverseOrder = false) {
+		return inverseOrder ? getInverseOrderComment() : i_orderComment;
+	}
+
+	string getInverseOrderComment() {
+		return StringFormat("%s inverse", i_orderComment);
 	}
 
 	string getReversePositionComment(ulong ticket) {
-		string result = StringFormat("%s reverse %u", getOrderComment(), ticket);
-		return result;
+		return StringFormat("%s reverse %u", i_orderComment, ticket);
 	}
 
 	uint getOpenedPositionsNumber() {
@@ -292,7 +314,7 @@ private:
 	bool isPositionInverse(CPositionInfo& pi) {
 		return StringFind(pi.Comment(), "inverse") != -1;
 	}
-
+/*
 	bool isPositionExpired(CPositionInfo& pi) {
 		uint maxAliveTime = isPositionReverse(pi) ? i_maxAliveTimeReverse > 0 : i_maxAliveTime;
 
@@ -314,7 +336,7 @@ private:
 			}
 		}
 	}
-
+*/
 	bool checkAllowTrade(datetime t) {
 		return getOpenedPositionsNumber() < i_maxOpenedPositions &&
 			m_symbolInfo.Spread() < (int)i_maxSpread &&
@@ -387,7 +409,7 @@ private:
 		return price - i_ordersOffset * m_symbolInfo.Point();
 	}
 
-	bool openBuyStopOrder(double price) {
+	bool openBuyStopOrder(double price, bool inverseOrder = false) {
 		static bool priceWarningPrinted = false;
 		static bool volumeWargingPrinted = false;
 
@@ -412,7 +434,7 @@ private:
 		}
 		volumeWargingPrinted = false;
 
-		bool success = m_trade.BuyStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment());
+		bool success = m_trade.BuyStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment(inverseOrder));
 		if (!success || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
 			return false;
 		}
@@ -420,7 +442,7 @@ private:
 		return true;
 	}
 
-	bool openBuyLimitOrder(double price) {
+	bool openBuyLimitOrder(double price, bool inverseOrder = false) {
 		static bool priceWarningPrinted = false;
 		static bool volumeWargingPrinted = false;
 
@@ -445,7 +467,7 @@ private:
 		}
 		volumeWargingPrinted = false;
 
-		bool success = m_trade.BuyLimit(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment());
+		bool success = m_trade.BuyLimit(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment(inverseOrder));
 		if (!success || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
 			return false;
 		}
@@ -453,7 +475,7 @@ private:
 		return true;
 	}
 
-	bool openSellStopOrder(double price) {
+	bool openSellStopOrder(double price, bool inverseOrder = false) {
 		static bool priceWarningPrinted = false;
 		static bool volumeWargingPrinted = false;
 
@@ -478,7 +500,7 @@ private:
 		}
 		volumeWargingPrinted = false;
 
-		bool success = m_trade.SellStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment());
+		bool success = m_trade.SellStop(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment(inverseOrder));
 		if (!success || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
 			return false;
 		}
@@ -486,7 +508,7 @@ private:
 		return true;
 	}
 
-	bool openSellLimitOrder(double price) {
+	bool openSellLimitOrder(double price, bool inverseOrder = false) {
 		static bool priceWarningPrinted = false;
 		static bool volumeWargingPrinted = false;
 
@@ -511,7 +533,7 @@ private:
 		}
 		volumeWargingPrinted = false;
 
-		bool success = m_trade.SellLimit(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment());
+		bool success = m_trade.SellLimit(volume, price, m_symbol, sl, tp, ORDER_TIME_DAY, 0, getOrderComment(inverseOrder));
 		if (!success || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
 			return false;
 		}
@@ -649,13 +671,29 @@ private:
 		return (m_symbolInfo.Ask() >= ev.upperValue) || (m_symbolInfo.Bid() <= ev.lowerValue);
 	}
 
+	bool isReversePositionOpened(CPositionInfo& pi) {
+		uint size = m_positionsWithReverse.Size();
+
+		for (uint i = 0; i < size; i++) {
+			if (pi.Ticket() == m_positionsWithReverse[i]) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	bool checkCanOpenReversePosition(CPositionInfo& pi) {
-		if (m_reversePositionOpened) {
-//			Print("DEBUG: Позиция уже открывалась в текущих сутках");
+		if (isPositionInverse(pi) || isPositionReverse(pi)) {
 			return false;
 		}
 
-		if (pi.Time() < m_lastRateTime) {
+		if (isReversePositionOpened(pi)) {
+//			Print("DEBUG: Реверсная позиция уже открывалась для этой позиции");
+			return false;
+		}
+
+		if (pi.Time() + 3600 * 24 < TimeCurrent()) {
 //			Print("DEBUG: Позиция открыта раньше начала текущих суток");
 			return false;
 		}
@@ -741,14 +779,17 @@ private:
 			volume, price, sl, tp
 		);
 
-		m_reversePositionOpened = true;
+		uint size = m_positionsWithReverse.Size();
+		ArrayResize(m_positionsWithReverse, size + 1, 1000);
+		m_positionsWithReverse[size] = ticket;
 
+/*
 		if (i_closeStraightPosion) {
 			if (!m_trade.PositionClose(ticket) || m_trade.ResultRetcode() != TRADE_RETCODE_DONE) {
 				return false;
 			};
 		}
-
+*/
 		return true;
 	}
 };
