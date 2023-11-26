@@ -14,6 +14,11 @@ enum ENUM_ORDER_POSITION {
 	ORDER_POSITION_CLOSE
 };
 
+struct EnvelopesValues {
+	double lowerValue;
+	double upperValue;
+};
+
 sinput uint i_magicNumber = 19700626;								// MagickNumber
 input ENUM_ORDER_POSITION i_ordersPosition = ORDER_POSITION_SHADOW;	// Ориентир для установки ордеров
 input uint i_ordersOffset = 0;										// Смещение для ордеров
@@ -22,7 +27,7 @@ sinput uint i_delay = 0;											// Задержка перед выставл
 input uint i_minBarSize = 0;										// Минимальный размер свечи
 input uint i_maxBarSize = 100000;									// Максимальный размер свечи
 input double i_riskLimit = 0.01;									// Допустимый риск (коэффициент)
-input double i_fixedVolume = 0.01;									// Фиксированный объем
+input double i_fixedVolume = 0.01;									// Фиксированный лот
 input uint i_takeProfit = 300;										// Фиксированный TP (пипсы)
 input uint i_stopLoss = 200;										// Фиксированный SL (пипсы)
 sinput bool i_useBreakeven = false;									// Включить перевод в безубыток
@@ -40,11 +45,11 @@ sinput string i_orderComment = "DayHLNG";							// Комментарий к о�
 input uint i_maxAliveTime = 0; 										// Максимальное время жизни прямых позиций в часах
 input uint i_maxAliveTimeReverse = 0;	 							// Максимальное время жизни реверсных позиций в часах
 sinput bool i_closeStraightPosion = false;							// Закрывать прямую позицию при открытии реверсной
-input double i_value = 0;               							// Смещение верхней и нижней границ
 input int i_period = 30;             								// Период усреднения
 input ENUM_MA_METHOD i_method = MODE_EMA;       					// Метод усреднения
 input ENUM_APPLIED_PRICE i_price = PRICE_CLOSE;     				// Цена для расчёта
 input int i_shift = 0;               								// Смещение
+input double i_deviation = 0;              							// Отклонение границ от средней линии
 sinput bool i_useInverse = true;									// Выставлять инверсные позиции
 
 class CDayHLNG {
@@ -52,15 +57,19 @@ public:
 	CDayHLNG::CDayHLNG() {
 		m_highTicket = m_lowTicket = 0;
 		m_lastRateTime = 0;
+		m_psarHandle = INVALID_HANDLE;
+		m_envelopesHandle = INVALID_HANDLE;
 	};
 
 	int OnInit() {
 		m_symbol = Symbol();
+
 		if (!m_symbolInfo.Name(m_symbol)) return INIT_FAILED;
 
 		m_trade.SetExpertMagicNumber(i_magicNumber);
 
 		if (!checkInputParams()) return INIT_FAILED;
+
 //		checkAndCopyParams(params);
 
 		m_lowOrderBarTime = m_highOrderBarTime = getLastRateTime();
@@ -71,28 +80,22 @@ public:
 		if (i_usePsarTrailing) {
 			m_psarHandle = iSAR(m_symbol, i_psarTrailingTimeframe, i_psarTrailingStep, i_psarTrailingMaxStep);
 			if (m_psarHandle == INVALID_HANDLE) {
-				EventKillTimer();
+				cleanup();
 				return INIT_FAILED;
 			}
-		} else {
-			m_psarHandle = INVALID_HANDLE;
 		}
 
-		m_maHandle = iMA(m_symbol, PERIOD_D1, i_period, i_shift, i_method, i_price);
+		m_envelopesHandle = iEnvelopes(m_symbol, PERIOD_D1, i_period, i_shift, i_method, i_price, i_deviation);
+		if (m_envelopesHandle == INVALID_HANDLE) {
+			cleanup();
+			return INIT_FAILED;
+		}
 
 		return INIT_SUCCEEDED;
 	}
 
 	void OnDeinit(const int reason) {
-		EventKillTimer();
-		if (i_usePsarTrailing && m_psarHandle != INVALID_HANDLE) {
-			IndicatorRelease(m_psarHandle);
-		}
-		if (m_maHandle != m_maHandle) {
-			IndicatorRelease(m_maHandle);
-		}
-
-		m_lastRateTime = 0;
+		cleanup();
 	}
 
 	void OnTick() {
@@ -134,57 +137,49 @@ public:
 
 		m_reversePositionOpened = false;
 
-		MqlRates rates[1];
-		if (CopyRates(m_symbol, PERIOD_D1, 1, 1, rates) == -1) {
-			PrintFormat("ERROR: CopyRates: %d", GetLastError());
-			return;
-		}
+		MqlRates rate;
 
-		if (!checkRateLimits(rates[0])) return;
+		if (!getPrevDayRate(rate)) return;
+
+		if (!checkRateLimits(rate)) return;
 
 		m_symbolInfo.Refresh();
 		m_symbolInfo.RefreshRates();
 
-		double buffer[1];
-		if (CopyBuffer(m_maHandle, 0, 1, 1, buffer) == -1) {
-			PrintFormat("ERROR: CopyBuffer: %d", GetLastError());
-			return;
-		}
+		EnvelopesValues ev;
 
-		PrintFormat("DEBUG: OnTimer: low=%f, high=%f, MA=%f, i_value=%f", rates[0].low, rates[0].high, buffer[0], i_value);
+		if (!getLastEnvelopes(ev)) return;
 
 		if (t > m_highOrderBarTime) {
-			if (rates[0].high > buffer[0] + i_value) {
+			if (rate.high > ev.upperValue) {
 				if (i_useInverse) {
-					if (m_symbolInfo.Bid() > rates[0].high && openSellStopOrder(rates[0].high)) {
-						PrintFormat("DEBUG: OnTimer: openSellStop: rates[0].high=%f, buffer[0] + i_value=%f", rates[0].high, buffer[0] + i_value);
+					PrintFormat("DEBUG: OnTimer: rate.high=%f, ev.upperValue=%f", rate.high, ev.upperValue);
+					if (m_symbolInfo.Bid() > rate.high && openSellStopOrder(rate.high)) {
 						m_highOrderBarTime = t;
-					} else if (m_symbolInfo.Bid() < rates[0].high && openSellLimitOrder(rates[0].high)) {
-						PrintFormat("DEBUG: OnTimer: openSellLimitOrder: rates[0].high=%f, buffer[0] + i_value=%f", rates[0].high, buffer[0] + i_value);
+					} else if (m_symbolInfo.Bid() < rate.high && openSellLimitOrder(rate.high)) {
 						m_highOrderBarTime = t;
 					}
 				} else {
 					m_highOrderBarTime = t;
 				}
-			} else if (openBuyStopOrder(getBuyPrice(rates[0]))) {
+			} else if (openBuyStopOrder(getBuyPrice(rate))) {
 				m_highOrderBarTime = t;
 			}
 		}
 
 		if (t > m_lowOrderBarTime) {
-			if (rates[0].low < buffer[0] - i_value) {
+			if (rate.low < ev.lowerValue) {
 				if (i_useInverse) {
-					if (m_symbolInfo.Ask() < rates[0].low && openBuyStopOrder(rates[0].low)) {
-						PrintFormat("DEBUG: OnTimer: openBuyStopOrder: rates[0].high=%f, buffer[0] + i_value=%f", rates[0].high, buffer[0] + i_value);
+					PrintFormat("DEBUG: OnTimer: rate.low=%f, ev.lowerValue=%f", rate.low, ev.lowerValue);
+					if (m_symbolInfo.Ask() < rate.low && openBuyStopOrder(rate.low)) {
 						m_lowOrderBarTime = t;
-					} else if (m_symbolInfo.Ask() > rates[0].low && openBuyLimitOrder(rates[0].low)) {
-						PrintFormat("DEBUG: OnTimer: openBuyLimitOrder: rates[0].high=%f, buffer[0] + i_value=%f", rates[0].high, buffer[0] + i_value);
+					} else if (m_symbolInfo.Ask() > rate.low && openBuyLimitOrder(rate.low)) {
 						m_lowOrderBarTime = t;
 					}
 				} else {
 					m_lowOrderBarTime = t;
 				}
-			} else if (openSellStopOrder(getSellPrice(rates[0]))) {
+			} else if (openSellStopOrder(getSellPrice(rate))) {
 				m_lowOrderBarTime = t;
 			}
 		}
@@ -197,7 +192,8 @@ private:
 	ulong m_highTicket;
 	ulong m_lowTicket;
 	int m_psarHandle;
-	int m_maHandle;
+//	int m_maHandle;
+	int m_envelopesHandle;
 	datetime m_lastRateTime;
 	bool m_reversePositionOpened;
 
@@ -206,6 +202,52 @@ private:
 	COrderInfo m_orderInfo;
 	CPositionInfo m_positionInfo;
 	CAccountInfo m_accountInfo;
+
+	bool getPrevDayRate(MqlRates& rate) {
+		MqlRates rates[1];
+
+		if (CopyRates(m_symbol, PERIOD_D1, 1, 1, rates) == -1) {
+			PrintFormat("ERROR: getPrevDayRate: CopyRates: %d", GetLastError());
+			return false;
+		}
+		rate = rates[0];
+
+		return true;
+	}
+
+	bool getLastEnvelopes(EnvelopesValues& ev) {
+		double buffer[1];
+
+		if (CopyBuffer(m_envelopesHandle, 0, 1, 1, buffer) == -1) {
+			PrintFormat("ERROR: getLastEnvelopes: CopyBuffer: %d", GetLastError());
+			return false;
+		}
+		ev.upperValue = buffer[0];
+
+		if (CopyBuffer(m_envelopesHandle, 1, 1, 1, buffer) == -1) {
+			PrintFormat("ERROR: getLastEnvelopes: CopyBuffer: %d", GetLastError());
+			return false;
+		}
+		ev.lowerValue = buffer[0];
+
+		return true;
+	}
+
+	void cleanup() {
+		EventKillTimer();
+
+		if (m_psarHandle != INVALID_HANDLE) {
+			IndicatorRelease(m_psarHandle);
+			m_psarHandle = INVALID_HANDLE;
+		}
+
+		if (m_envelopesHandle != INVALID_HANDLE) {
+			IndicatorRelease(m_envelopesHandle);
+			m_envelopesHandle = INVALID_HANDLE;
+		}
+
+		m_lastRateTime = 0;
+	}
 
 	bool checkInputParams() {
 		if (i_ordersPosition == ORDER_POSITION_CLOSE && (int)i_ordersOffset < m_symbolInfo.StopsLevel()) {
@@ -245,6 +287,10 @@ private:
 
 	bool isPositionReverse(CPositionInfo& pi) {
 		return StringFind(pi.Comment(), "reverse") != -1;
+	}
+
+	bool isPositionInverse(CPositionInfo& pi) {
+		return StringFind(pi.Comment(), "inverse") != -1;
 	}
 
 	bool isPositionExpired(CPositionInfo& pi) {
@@ -596,10 +642,11 @@ private:
 		m_symbolInfo.Refresh();
 		m_symbolInfo.RefreshRates();
 
-		double buffer[1];
-		int n = CopyBuffer(m_maHandle, 0, 1, 1, buffer);
+		EnvelopesValues ev;
 
-		return (m_symbolInfo.Ask() >= buffer[0] + i_value) || (m_symbolInfo.Bid() <= buffer[0] - i_value);
+		getLastEnvelopes(ev);
+
+		return (m_symbolInfo.Ask() >= ev.upperValue) || (m_symbolInfo.Bid() <= ev.lowerValue);
 	}
 
 	bool checkCanOpenReversePosition(CPositionInfo& pi) {
