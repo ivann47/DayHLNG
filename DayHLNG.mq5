@@ -3,8 +3,8 @@
 // Alexey Ivannikov (alexey.a.ivannikov@gmail.com)
 //
 #define     MName          "DayHLNG"
-#define     MVersion       "2.7"
-#define     MBuild         "2023-11-22 23:40 MSK"
+#define     MVersion       "2.8"
+#define     MBuild         "2023-11-26 23:10 MSK"
 #define     MCopyright     "Copyright \x00A9 2021, Alexey Ivannikov (alexey.a.ivannikov@gmail.com), All rights reserved"
 //---------------------------------------------------------------------------------------------------------------------
 #property   version        MVersion
