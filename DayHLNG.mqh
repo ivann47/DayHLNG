@@ -7,6 +7,7 @@
 #include <Trade/SymbolInfo.mqh>
 #include <Trade/AccountInfo.mqh>
 #include <Trade/PositionInfo.mqh>
+#include "CreateTrend.mqh"
 
 enum ENUM_ORDER_POSITION {
 	ORDER_POSITION_SHADOW,
@@ -36,7 +37,7 @@ input uint i_breakevenValue = 10;									// Величина безубытка
 sinput bool i_useFixedTrailing = false;								// Включить фиксированный Trailing Stop
 input uint i_fixedTrailingTriggerLevel = 110;						// Уровень включения фиксированного Trailing Stop (пипсы)
 input uint i_fixedTrailingValue = 100;								// Величина фиксированного Trailing Stop (пипсы)
-sinput bool i_usePsarTrailing = false;								// Включить Trailing Stop по PSAR
+sinput bool i_usePsarTrailing = true;								// Включить Trailing Stop по PSAR
 input ENUM_TIMEFRAMES i_psarTrailingTimeframe = PERIOD_M15;			// Таймфрейм для Trailing Stop по PSAR
 input double i_psarTrailingStep = 0.02;								// Шаг изменения цены для Trailing Stop по PSAR
 input double i_psarTrailingMaxStep = 0.2;							// Максимальный шаг для Trailing Stop по PSAR
@@ -45,11 +46,11 @@ sinput string i_orderComment = "DayHLNG";							// Комментарий к о�
 //input uint i_maxAliveTime = 0; 										// Максимальное время жизни прямых позиций в часах
 //input uint i_maxAliveTimeReverse = 0;	 							// Максимальное время жизни реверсных позиций в часах
 //sinput bool i_closeStraightPosion = false;							// Закрывать прямую позицию при открытии реверсной
-input int i_period = 30;             								// Период усреднения
+input int i_period = 5;             								// Период усреднения
 input ENUM_MA_METHOD i_method = MODE_EMA;       					// Метод усреднения
 input ENUM_APPLIED_PRICE i_price = PRICE_CLOSE;     				// Цена для расчёта
 input int i_shift = 0;               								// Смещение
-input double i_deviation = 0;              							// Отклонение границ от средней линии
+input double i_deviation = 1;              							// Отклонение границ от средней линии
 sinput bool i_useInverse = true;									// Выставлять инверсные позиции
 
 class CDayHLNG {
@@ -90,6 +91,8 @@ public:
 			cleanup();
 			return INIT_FAILED;
 		}
+
+		drawEnvelopes(1);
 
 		return INIT_SUCCEEDED;
 	}
@@ -135,6 +138,10 @@ public:
 
 		datetime t = getLastRateTime();
 
+		if (m_lastDrawnEnvelopesTime < t) {
+			drawEnvelopes(1);
+		}
+
 		if ((t == m_lowOrderBarTime && t == m_highOrderBarTime) || !checkAllowTrade(t)) return;
 
 //		m_reversePositionOpened = false;
@@ -156,9 +163,9 @@ public:
 			if (rate.high > ev.upperValue) {
 				if (i_useInverse) {
 					PrintFormat("DEBUG: OnTimer: rate.high=%f, ev.upperValue=%f", rate.high, ev.upperValue);
-					if (m_symbolInfo.Bid() > rate.high && openSellStopOrder(rate.high)) {
+					if (m_symbolInfo.Bid() > rate.high && openSellStopOrder(rate.high, true)) {
 						m_highOrderBarTime = t;
-					} else if (m_symbolInfo.Bid() < rate.high && openSellLimitOrder(rate.high)) {
+					} else if (m_symbolInfo.Bid() < rate.high && openSellLimitOrder(rate.high, true)) {
 						m_highOrderBarTime = t;
 					}
 				} else {
@@ -173,9 +180,9 @@ public:
 			if (rate.low < ev.lowerValue) {
 				if (i_useInverse) {
 					PrintFormat("DEBUG: OnTimer: rate.low=%f, ev.lowerValue=%f", rate.low, ev.lowerValue);
-					if (m_symbolInfo.Ask() < rate.low && openBuyStopOrder(rate.low)) {
+					if (m_symbolInfo.Ask() < rate.low && openBuyStopOrder(rate.low, true)) {
 						m_lowOrderBarTime = t;
-					} else if (m_symbolInfo.Ask() > rate.low && openBuyLimitOrder(rate.low)) {
+					} else if (m_symbolInfo.Ask() > rate.low && openBuyLimitOrder(rate.low, true)) {
 						m_lowOrderBarTime = t;
 					}
 				} else {
@@ -199,12 +206,33 @@ private:
 	datetime m_lastRateTime;
 //	bool m_reversePositionOpened;
 	ulong m_positionsWithReverse[];
+	datetime m_lastDrawnEnvelopesTime;
 
 	CTrade m_trade;
 	CSymbolInfo m_symbolInfo;
 	COrderInfo m_orderInfo;
 	CPositionInfo m_positionInfo;
 	CAccountInfo m_accountInfo;
+
+	void drawEnvelopes(int pos = 0) {
+		MqlRates rate;
+
+		if (!getDayRate(rate, pos)) return;
+
+		EnvelopesValues ev;
+
+		if (!getEnvelopes(ev, pos)) return;
+
+		string upperName = StringFormat("Envelope upper %d", rate.time);
+
+		CreateTrend(upperName, rate.time, ev.upperValue, rate.time + 24 * 3600, ev.upperValue);
+
+		string lowerName = StringFormat("Envelope lower %d", rate.time);
+
+		CreateTrend(lowerName, rate.time, ev.lowerValue, rate.time + 24 * 3600, ev.lowerValue, clrGreen);
+
+		m_lastDrawnEnvelopesTime = rate.time;
+	}
 
 	void removeClosedPositions() {
 		ulong buf[];
@@ -222,10 +250,10 @@ private:
 		ArrayCopy(m_positionsWithReverse, buf);
 	}
 
-	bool getPrevDayRate(MqlRates& rate) {
+	bool getDayRate(MqlRates& rate, int pos = 0) {
 		MqlRates rates[1];
 
-		if (CopyRates(m_symbol, PERIOD_D1, 1, 1, rates) == -1) {
+		if (CopyRates(m_symbol, PERIOD_D1, pos, 1, rates) == -1) {
 			PrintFormat("ERROR: getPrevDayRate: CopyRates: %d", GetLastError());
 			return false;
 		}
@@ -234,22 +262,30 @@ private:
 		return true;
 	}
 
-	bool getLastEnvelopes(EnvelopesValues& ev) {
+	bool getPrevDayRate(MqlRates& rate) {
+		return getDayRate(rate, 1);
+	}
+
+	bool getEnvelopes(EnvelopesValues& ev, int pos = 0) {
 		double buffer[1];
 
-		if (CopyBuffer(m_envelopesHandle, 0, 1, 1, buffer) == -1) {
-			PrintFormat("ERROR: getLastEnvelopes: CopyBuffer: %d", GetLastError());
+		if (CopyBuffer(m_envelopesHandle, 0, pos, 1, buffer) == -1) {
+			PrintFormat("ERROR: getEnvelopes: CopyBuffer: %d", GetLastError());
 			return false;
 		}
 		ev.upperValue = buffer[0];
 
-		if (CopyBuffer(m_envelopesHandle, 1, 1, 1, buffer) == -1) {
-			PrintFormat("ERROR: getLastEnvelopes: CopyBuffer: %d", GetLastError());
+		if (CopyBuffer(m_envelopesHandle, 1, pos, 1, buffer) == -1) {
+			PrintFormat("ERROR: getEnvelopes: CopyBuffer: %d", GetLastError());
 			return false;
 		}
 		ev.lowerValue = buffer[0];
 
 		return true;
+	}
+
+	bool getLastEnvelopes(EnvelopesValues& ev) {
+		return getEnvelopes(ev, 1);
 	}
 
 	void cleanup() {
@@ -272,6 +308,19 @@ private:
 		if (i_ordersPosition == ORDER_POSITION_CLOSE && (int)i_ordersOffset < m_symbolInfo.StopsLevel()) {
 			return false;
 		}
+		return true;
+	}
+
+	bool getRateTime(datetime& time, int pos) {
+		datetime buf[1];
+
+		if (CopyTime(m_symbol, PERIOD_D1, pos, 1, buf) == -1) {
+			PrintFormat("ERROR: getRateTime: CopyTime: %d", GetLastError());
+			return false;
+		}
+
+		time = buf[0];
+
 		return true;
 	}
 
