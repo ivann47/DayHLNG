@@ -4,12 +4,12 @@
 //
 #define     MName          "DayHLNG"
 #define     MVersion       "2.9"
-#define     MBuild         "2023-11-27 23:40 MSK"
+#define     MBuild         "2023-11-28 20:20 MSK"
 #define     MCopyright     "Copyright \x00A9 2021, Alexey Ivannikov (alexey.a.ivannikov@gmail.com), All rights reserved"
 //---------------------------------------------------------------------------------------------------------------------
 #property   version        MVersion
 #property   description    MName
-#property   description    "Extended version of the DayHL expert advisor (Build "MBuild" alpha1)"
+#property   description    "Extended version of the DayHL expert advisor (Build "MBuild" alpha2)"
 #property   copyright      MCopyright
 
 #include "DayHLNG.mqh"
