@@ -163,9 +163,9 @@ public:
 			if (rate.high > ev.upperValue) {
 				if (i_useInverse) {
 					PrintFormat("DEBUG: OnTimer: rate.high=%f, ev.upperValue=%f", rate.high, ev.upperValue);
-					if (m_symbolInfo.Bid() > rate.high && openSellStopOrder(rate.high)) {
+					if (m_symbolInfo.Bid() > rate.high && openSellStopOrder(rate.high, true)) {
 						m_highOrderBarTime = t;
-					} else if (m_symbolInfo.Bid() < rate.high && openSellLimitOrder(rate.high)) {
+					} else if (m_symbolInfo.Bid() < rate.high && openSellLimitOrder(rate.high, true)) {
 						m_highOrderBarTime = t;
 					}
 				} else {
@@ -180,9 +180,9 @@ public:
 			if (rate.low < ev.lowerValue) {
 				if (i_useInverse) {
 					PrintFormat("DEBUG: OnTimer: rate.low=%f, ev.lowerValue=%f", rate.low, ev.lowerValue);
-					if (m_symbolInfo.Ask() < rate.low && openBuyStopOrder(rate.low)) {
+					if (m_symbolInfo.Ask() < rate.low && openBuyStopOrder(rate.low, true)) {
 						m_lowOrderBarTime = t;
-					} else if (m_symbolInfo.Ask() > rate.low && openBuyLimitOrder(rate.low)) {
+					} else if (m_symbolInfo.Ask() > rate.low && openBuyLimitOrder(rate.low, true)) {
 						m_lowOrderBarTime = t;
 					}
 				} else {
