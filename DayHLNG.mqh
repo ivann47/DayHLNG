@@ -736,11 +736,6 @@ private:
 			return false;
 		}
 
-		if (isReversePositionOpened(pi)) {
-//			Print("DEBUG: Реверсная позиция уже открывалась для этой позиции");
-			return false;
-		}
-
 		if (pi.Time() + 3600 * 24 < TimeCurrent()) {
 //			Print("DEBUG: Позиция открыта раньше начала текущих суток");
 			return false;
@@ -761,6 +756,11 @@ private:
 		}
 
 		if (checkPriceOutOfRange()) {
+			return false;
+		}
+
+		if (isReversePositionOpened(pi)) {
+//			Print("DEBUG: Реверсная позиция уже открывалась для этой позиции");
 			return false;
 		}
 
