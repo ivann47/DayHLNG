@@ -3,13 +3,15 @@
 // Alexey Ivannikov (alexey.a.ivannikov@gmail.com)
 //
 #define     MName          "DayHLNG"
-#define     MVersion       "2.9"
-#define     MBuild         "2023-11-28 20:20 MSK"
+#define		MMajor		   "2"
+#define		MMinor		   "10"
+#define		MPatchlevel	   "1"
+//#define     MVersion       "2.10"
 #define     MCopyright     "Copyright \x00A9 2021, Alexey Ivannikov (alexey.a.ivannikov@gmail.com), All rights reserved"
 //---------------------------------------------------------------------------------------------------------------------
-#property   version        MVersion
+#property   version        MMajor"."MMinor
 #property   description    MName
-#property   description    "Extended version of the DayHL expert advisor (Build "MBuild" alpha2)"
+#property   description    "Extended version of the DayHL expert advisor (version "MMajor"."MMinor"."MPatchlevel")"
 #property   copyright      MCopyright
 
 #include "DayHLNG.mqh"

@@ -52,6 +52,7 @@ input ENUM_APPLIED_PRICE i_price = PRICE_CLOSE;     				// Цена для ра�
 input int i_shift = 0;               								// Смещение
 input double i_deviation = 1;              							// Отклонение границ от средней линии
 sinput bool i_useInverse = true;									// Выставлять инверсные позиции
+sinput bool i_showEnvelopes = true;									// Показывать значения Envelopes
 
 class CDayHLNG {
 public:
@@ -92,7 +93,7 @@ public:
 			return INIT_FAILED;
 		}
 
-		drawEnvelopes(1);
+		if (i_showEnvelopes) drawEnvelopes(1);
 
 		return INIT_SUCCEEDED;
 	}
@@ -134,15 +135,13 @@ public:
 	void OnTimer() {
 //		closeExpiredPositions();
 
-		removeClosedPositions();
-
 		datetime t = getLastRateTime();
 
-		if (m_lastDrawnEnvelopesTime < t) {
-			drawEnvelopes(1);
-		}
+		if (i_showEnvelopes && m_lastDrawnEnvelopesTime < t) drawEnvelopes(1);
 
 		if ((t == m_lowOrderBarTime && t == m_highOrderBarTime) || !checkAllowTrade(t)) return;
+
+		removeClosedPositions();
 
 //		m_reversePositionOpened = false;
 
@@ -737,11 +736,6 @@ private:
 			return false;
 		}
 
-		if (isReversePositionOpened(pi)) {
-//			Print("DEBUG: Реверсная позиция уже открывалась для этой позиции");
-			return false;
-		}
-
 		if (pi.Time() + 3600 * 24 < TimeCurrent()) {
 //			Print("DEBUG: Позиция открыта раньше начала текущих суток");
 			return false;
@@ -762,6 +756,11 @@ private:
 		}
 
 		if (checkPriceOutOfRange()) {
+			return false;
+		}
+
+		if (isReversePositionOpened(pi)) {
+//			Print("DEBUG: Реверсная позиция уже открывалась для этой позиции");
 			return false;
 		}
 
