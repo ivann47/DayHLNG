@@ -4,8 +4,8 @@
 //
 #define     MName          "DayHLNG"
 #define		MMajor		   "2"
-#define		MMinor		   "10"
-#define		MPatchlevel	   "1"
+#define		MMinor		   "11"
+#define		MPatchlevel	   "2"
 //#define     MVersion       "2.10"
 #define     MCopyright     "Copyright \x00A9 2021, Alexey Ivannikov (alexey.a.ivannikov@gmail.com), All rights reserved"
 //---------------------------------------------------------------------------------------------------------------------
@@ -32,4 +32,21 @@ void OnTick() {
 
 void OnTimer() {
 	expert.OnTimer();
+}
+
+void  OnChartEvent(
+   const int id,       // идентификатор события
+   const long& lparam,   // параметр события типа long
+   const double& dparam,   // параметр события типа double
+   const string& sparam    // параметр события типа string
+) {
+	expert.OnChartEvent(id, lparam, dparam, sparam);
+}
+
+void OnTradeTransaction(
+	const MqlTradeTransaction &trans,
+	const MqlTradeRequest &request,
+	const MqlTradeResult &result
+) {
+	expert.OnTradeTransaction(trans, request, result);
 }

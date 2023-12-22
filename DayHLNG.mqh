@@ -8,6 +8,8 @@
 #include <Trade/AccountInfo.mqh>
 #include <Trade/PositionInfo.mqh>
 #include "CreateTrend.mqh"
+#include "InfoPanel.mqh"
+#include "StatData.mqh"
 
 enum ENUM_ORDER_POSITION {
 	ORDER_POSITION_SHADOW,
@@ -72,8 +74,6 @@ public:
 
 		if (!checkInputParams()) return INIT_FAILED;
 
-//		checkAndCopyParams(params);
-
 		m_lowOrderBarTime = m_highOrderBarTime = getLastRateTime();
 		if (m_lowOrderBarTime == 0) return INIT_FAILED;
 
@@ -95,11 +95,16 @@ public:
 
 		if (i_showEnvelopes) drawEnvelopes(1);
 
+		m_infoDialog.Create();
+		UpdateInfoPanelData();
+		m_infoDialog.Run();
+
 		return INIT_SUCCEEDED;
 	}
 
 	void OnDeinit(const int reason) {
 		cleanup();
+		m_infoDialog.Destroy(reason);
 	}
 
 	void OnTick() {
@@ -193,6 +198,26 @@ public:
 		}
 	}
 
+	void  OnChartEvent(
+		const int id,
+   		const long& lparam,
+   		const double& dparam,
+   		const string& sparam
+	) {
+		m_infoDialog.OnEvent(id, lparam, dparam, sparam);
+	}
+
+	void OnTradeTransaction(
+		const MqlTradeTransaction &trans,
+		const MqlTradeRequest &request,
+		const MqlTradeResult &result
+	) {
+//		PrintFormat("DEBUG: OnTradeTransaction: type=%d", trans.type);
+		if (trans.type == TRADE_TRANSACTION_DEAL_ADD) {
+			UpdateInfoPanelData();
+		}
+	}
+
 private:
 	string m_symbol;
 	datetime m_highOrderBarTime;
@@ -206,12 +231,49 @@ private:
 //	bool m_reversePositionOpened;
 	ulong m_positionsWithReverse[];
 	datetime m_lastDrawnEnvelopesTime;
+	CInfoDialog m_infoDialog;
 
 	CTrade m_trade;
 	CSymbolInfo m_symbolInfo;
 	COrderInfo m_orderInfo;
 	CPositionInfo m_positionInfo;
 	CAccountInfo m_accountInfo;
+
+	void UpdateInfoPanelData() {
+		CStatData data;
+		GetStat(data);
+		m_infoDialog.SetInfo(data);
+	}
+
+	void GetStat(CStatData& data) {
+		CPositionInfo pi;
+
+		int totalPositions = PositionsTotal();
+
+//		PrintFormat("DEBUG: PositionsTotal = %d", totalPositions);
+
+		data.symbolCounters.direct = 0;
+		data.symbolCounters.reverse = 0;
+		data.symbolCounters.inverse = 0;
+		data.totalCounters.direct = 0;
+		data.totalCounters.reverse = 0;
+		data.totalCounters.inverse = 0;
+
+		for (int i = totalPositions - 1; i >= 0; i--) {
+			pi.SelectByIndex(i);
+
+			if (isPositionReverse(pi)) {
+				data.totalCounters.reverse++;
+				if (pi.Symbol() == m_symbol) data.symbolCounters.reverse++;
+			} else if (isPositionInverse(pi)) {
+				data.totalCounters.inverse++;
+				if (pi.Symbol() == m_symbol) data.symbolCounters.inverse++;
+			} else {
+				data.totalCounters.direct++;
+				if (pi.Symbol() == m_symbol) data.symbolCounters.direct++;
+			}
+		}
+	}
 
 	void drawEnvelopes(int pos = 0) {
 		MqlRates rate;
@@ -593,7 +655,30 @@ private:
 		return rate.open < rate.close;
 	}
 
+	bool checkSlAndTp(ulong ticket, double sl, double tp) {
+		CPositionInfo pi;
+		pi.SelectByTicket(ticket);
+		double price = pi.PriceCurrent();
+
+		CSymbolInfo si;
+		si.Name(pi.Symbol());
+
+		double point = si.Point();
+
+		bool result = MathAbs(pi.StopLoss() - sl) <= point && MathAbs(pi.TakeProfit() - tp) <= point ?
+				false :
+				pi.PositionType() == POSITION_TYPE_BUY ?
+						price > sl && price < tp :
+						price < sl && price > tp;
+
+		return result;
+	}
+
 	bool modifyPosition(ulong ticket, double sl, double tp) {
+		if (!checkSlAndTp(ticket, sl, tp)) {
+			return false;
+		}
+
 		MqlTradeRequest request;
 		MqlTradeResult result;
 		ZeroMemory(request);
@@ -604,6 +689,7 @@ private:
 		request.tp = tp;
 		request.position = ticket;
 		request.magic = i_magicNumber;
+
 		return OrderSend(request, result);
 	}
 
