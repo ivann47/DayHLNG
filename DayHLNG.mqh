@@ -290,7 +290,7 @@ private:
 
 		string lowerName = StringFormat("Envelope lower %d", rate.time);
 
-		CreateTrend(lowerName, rate.time, ev.lowerValue, rate.time + 24 * 3600, ev.lowerValue, clrGreen);
+		CreateTrend(lowerName, rate.time, ev.lowerValue, rate.time + 24 * 3600, ev.lowerValue, clrLightGreen);
 
 		m_lastDrawnEnvelopesTime = rate.time;
 	}
