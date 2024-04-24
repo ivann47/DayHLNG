@@ -95,16 +95,16 @@ public:
 
 		if (i_showEnvelopes) drawEnvelopes(1);
 
-		m_infoDialog.Create();
+		m_infoPanel.Create();
 		UpdateInfoPanelData();
-		m_infoDialog.Run();
+		m_infoPanel.Run();
 
 		return INIT_SUCCEEDED;
 	}
 
 	void OnDeinit(const int reason) {
 		cleanup();
-		m_infoDialog.Destroy(reason);
+		m_infoPanel.Destroy(reason);
 	}
 
 	void OnTick() {
@@ -204,7 +204,7 @@ public:
    		const double& dparam,
    		const string& sparam
 	) {
-		m_infoDialog.OnEvent(id, lparam, dparam, sparam);
+		m_infoPanel.OnEvent(id, lparam, dparam, sparam);
 	}
 
 	void OnTradeTransaction(
@@ -231,7 +231,7 @@ private:
 //	bool m_reversePositionOpened;
 	ulong m_positionsWithReverse[];
 	datetime m_lastDrawnEnvelopesTime;
-	CInfoDialog m_infoDialog;
+	CInfoPanel m_infoPanel;
 
 	CTrade m_trade;
 	CSymbolInfo m_symbolInfo;
@@ -242,7 +242,7 @@ private:
 	void UpdateInfoPanelData() {
 		CStatData data;
 		GetStat(data);
-		m_infoDialog.SetInfo(data);
+		m_infoPanel.SetInfo(data);
 	}
 
 	void GetStat(CStatData& data) {
