@@ -286,11 +286,11 @@ private:
 
 		string upperName = StringFormat("Envelope upper %d", rate.time);
 
-		CreateTrend(upperName, rate.time, ev.upperValue, rate.time + 24 * 3600, ev.upperValue);
+		CreateTrend(upperName, rate.time, ev.upperValue, rate.time + 24 * 3600, ev.upperValue, clrRed, 3);
 
 		string lowerName = StringFormat("Envelope lower %d", rate.time);
 
-		CreateTrend(lowerName, rate.time, ev.lowerValue, rate.time + 24 * 3600, ev.lowerValue, clrLightGreen);
+		CreateTrend(lowerName, rate.time, ev.lowerValue, rate.time + 24 * 3600, ev.lowerValue, clrForestGreen, 3);
 
 		m_lastDrawnEnvelopesTime = rate.time;
 	}
