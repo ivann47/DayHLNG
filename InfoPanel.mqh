@@ -5,10 +5,10 @@
 
 #define PANEL_X_POSITION    60
 #define PANEL_Y_POSITION    15
-#define PANEL_WIDTH 200
+#define PANEL_WIDTH 180
 #define PANEL_HEIGHT 270
 #define STATIC_LABEL_X_OFFSET   10
-#define VALUE_LABEL_X_OFFSET    90
+#define VALUE_LABEL_X_OFFSET    120
 #define TITLE_HEIGHT    22
 #define LABELS_HEIGHT   20
 #define LABEL_WIDTH     50
@@ -17,7 +17,7 @@
 class CInfoPanel: public CAppDialog {
 public:
     virtual bool Create() {
-        if (!CAppDialog::Create(0, "Информация о позициях", 0, PANEL_X_POSITION, PANEL_Y_POSITION, PANEL_X_POSITION + PANEL_WIDTH, PANEL_Y_POSITION + PANEL_HEIGHT)) {
+        if (!CAppDialog::Create(0, "  О позициях", 0, PANEL_X_POSITION, PANEL_Y_POSITION, PANEL_X_POSITION + PANEL_WIDTH, PANEL_Y_POSITION + PANEL_HEIGHT)) {
             return false;
         }
 
