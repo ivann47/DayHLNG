@@ -55,6 +55,7 @@ input int i_shift = 0;               								// Смещение
 input double i_deviation = 1;              							// Отклонение границ от средней линии
 sinput bool i_useInverse = true;									// Выставлять инверсные позиции
 sinput bool i_showEnvelopes = true;									// Показывать значения Envelopes
+sinput bool i_useLocking = false;						               	// Использовать локирование
 
 class CDayHLNG {
 public:
@@ -139,6 +140,8 @@ public:
 
 	void OnTimer() {
 //		closeExpiredPositions();
+
+      if (i_useLocking) Locking();
 
 		datetime t = getLastRateTime();
 
@@ -238,6 +241,53 @@ private:
 	COrderInfo m_orderInfo;
 	CPositionInfo m_positionInfo;
 	CAccountInfo m_accountInfo;
+
+//--------------------------------------------------------------------------/	
+//  Локирование
+//--------------------------------------------------------------------------/
+   bool Locking() {
+      CPositionInfo pi;
+		pi.SelectByMagic(m_symbol, i_magicNumber);
+		ENUM_POSITION_TYPE type = pi.PositionType();
+      ulong highTicket = 0;
+      ulong lowTicket = 0;
+      double highPrice = 0;
+      double lowPrice = 1000000;
+      double price; 
+      
+      int positionsTotal = PositionsTotal();
+//         Print ("открыто позиций ", positionsTotal );
+      for (int i = positionsTotal-1; i >= 0; i--) {
+         pi.SelectByIndex(i);
+         type = pi.PositionType();
+         price = pi.PriceOpen();
+//       Print ("i = ", i, "  type ", type, " price = ", price);
+         
+         if (type == POSITION_TYPE_BUY && lowPrice > price){
+	   		lowPrice = price;
+	   		lowTicket = pi.Ticket();
+// 	   	Print ("lowPrice = ", lowPrice, " lowTicket  ", lowTicket);	
+	   	}
+         
+         if (type == POSITION_TYPE_SELL && highPrice < price){
+	   		highPrice = price;
+	   		highTicket = pi.Ticket();
+// 	   	Print ("highPrice = ", highPrice, " highTicket ", highTicket);
+	   	}
+      }
+     
+      if (highPrice > lowPrice){
+      Print ("Locking тикеты  ", highTicket, " ", lowTicket );
+      
+      m_trade.PositionCloseBy(highTicket, lowTicket);
+//      m_trade.PositionClose(highTicket);
+//      m_trade.PositionClose(lowTicket);
+      }
+      
+      return true;
+   }
+
+//--------------------------------------------------------------------------/
 
 	void UpdateInfoPanelData() {
 		CStatData data;
