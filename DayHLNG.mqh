@@ -247,37 +247,31 @@ private:
 //--------------------------------------------------------------------------/
 	bool Locking() {
 		CPositionInfo pi;
-		pi.SelectByMagic(m_symbol, i_magicNumber);
-		ENUM_POSITION_TYPE type = pi.PositionType();
 		ulong highTicket = 0;
 		ulong lowTicket = 0;
 		double highPrice = 0;
 		double lowPrice = 1000000;
-		double price;
 
 		int positionsTotal = PositionsTotal();
-//			Print ("открыто позиций ", positionsTotal );
 		for (int i = positionsTotal - 1; i >= 0; i--) {
 			pi.SelectByIndex(i);
-			type = pi.PositionType();
-			price = pi.PriceOpen();
-//			Print ("i = ", i, "  type ", type, " price = ", price);
+			if (pi.Symbol() != m_symbol || pi.Magic() != i_magicNumber) continue;
+			ENUM_POSITION_TYPE type = pi.PositionType();
+			double price = pi.PriceOpen();
 
 			if (type == POSITION_TYPE_BUY && lowPrice > price) {
 				lowPrice = price;
 				lowTicket = pi.Ticket();
-//			Print ("lowPrice = ", lowPrice, " lowTicket  ", lowTicket);
 			}
 
 			if (type == POSITION_TYPE_SELL && highPrice < price) {
 				highPrice = price;
 				highTicket = pi.Ticket();
-//			Print ("highPrice = ", highPrice, " highTicket ", highTicket);
 			}
 		}
 
 		if (highPrice > lowPrice) {
-		Print("Locking тикеты  ", highTicket, " ", lowTicket);
+			Print("Locking тикеты  ", highTicket, " ", lowTicket);
 
 			m_trade.PositionCloseBy(highTicket, lowTicket);
 //			m_trade.PositionClose(highTicket);
