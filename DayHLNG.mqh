@@ -22,40 +22,43 @@ struct EnvelopesValues {
 	double upperValue;
 };
 
-sinput uint i_magicNumber = 19700626;								// MagickNumber
+sinput uint i_magicNumber = 19700626;											// MagickNumber
 input ENUM_ORDER_POSITION i_ordersPosition = ORDER_POSITION_SHADOW;	// Ориентир для установки ордеров
-input uint i_ordersOffset = 0;										// Смещение для ордеров
-sinput uint i_maxSpread = 30;										// Максимальный размер спреда
-sinput uint i_delay = 0;											// Задержка перед выставлением ордеров
-input uint i_minBarSize = 0;										// Минимальный размер свечи
-input uint i_maxBarSize = 100000;									// Максимальный размер свечи
-input double i_riskLimit = 0.01;									// Допустимый риск (коэффициент)
-input double i_fixedVolume = 0.01;									// Фиксированный лот
-input uint i_takeProfit = 300;										// Фиксированный TP (пипсы)
-input uint i_stopLoss = 200;										// Фиксированный SL (пипсы)
-sinput bool i_useBreakeven = false;									// Включить перевод в безубыток
-input uint i_breakevenTriggerLevel = 100;							// Уровень перевода позиции в безубыток (пипсы)
-input uint i_breakevenValue = 10;									// Величина безубытка (пипсы)
-sinput bool i_useFixedTrailing = false;								// Включить фиксированный Trailing Stop
-input uint i_fixedTrailingTriggerLevel = 110;						// Уровень включения фиксированного Trailing Stop (пипсы)
-input uint i_fixedTrailingValue = 100;								// Величина фиксированного Trailing Stop (пипсы)
-sinput bool i_usePsarTrailing = true;								// Включить Trailing Stop по PSAR
-input ENUM_TIMEFRAMES i_psarTrailingTimeframe = PERIOD_M15;			// Таймфрейм для Trailing Stop по PSAR
-input double i_psarTrailingStep = 0.02;								// Шаг изменения цены для Trailing Stop по PSAR
-input double i_psarTrailingMaxStep = 0.2;							// Максимальный шаг для Trailing Stop по PSAR
-input uint i_maxOpenedPositions = 1;								// Максимальное количество открытых позиций
-sinput string i_orderComment = "DayHLNG";							// Комментарий к ордерам
-//input uint i_maxAliveTime = 0; 										// Максимальное время жизни прямых позиций в часах
-//input uint i_maxAliveTimeReverse = 0;	 							// Максимальное время жизни реверсных позиций в часах
-//sinput bool i_closeStraightPosion = false;							// Закрывать прямую позицию при открытии реверсной
-input int i_period = 5;             								// Период усреднения
-input ENUM_MA_METHOD i_method = MODE_EMA;       					// Метод усреднения
-input ENUM_APPLIED_PRICE i_price = PRICE_CLOSE;     				// Цена для расчёта
-input int i_shift = 0;               								// Смещение
-input double i_deviation = 1;              							// Отклонение границ от средней линии
-sinput bool i_useInverse = true;									// Выставлять инверсные позиции
-sinput bool i_showEnvelopes = true;									// Показывать значения Envelopes
-sinput bool i_useLocking = false;						         // Использовать локирование
+input uint i_ordersOffset = 0;													// Смещение для ордеров
+sinput uint i_maxSpread = 30;								            		// Максимальный размер спреда
+sinput uint i_delay = 10000;														// Задержка перед выставлением ордеров
+input uint i_incrediblyDelay = 5000;											// Задержка для анализа запредельного состояния
+input double i_incrediblyLimit = -1;											// Лимит запредельного состояния (отрицательное число)
+input uint i_minBarSize = 0;														// Минимальный размер свечи
+input uint i_maxBarSize = 100000;												// Максимальный размер свечи
+input double i_riskLimit = 0.01;													// Допустимый риск (коэффициент)
+input double i_fixedVolume = 0.01;												// Фиксированный лот
+input uint i_takeProfit = 300;													// Фиксированный TP (пипсы)
+input uint i_stopLoss = 200;														// Фиксированный SL (пипсы)
+sinput bool i_useBreakeven = false;												// Включить перевод в безубыток
+input uint i_breakevenTriggerLevel = 100;										// Уровень перевода позиции в безубыток (пипсы)
+input uint i_breakevenValue = 10;												// Величина безубытка (пипсы)
+sinput bool i_useFixedTrailing = false;										// Включить фиксированный Trailing Stop
+input uint i_fixedTrailingTriggerLevel = 110;								// Уровень включения фиксированного Trailing Stop (пипсы)
+input uint i_fixedTrailingValue = 100;											// Величина фиксированного Trailing Stop (пипсы)
+sinput bool i_usePsarTrailing = true;											// Включить Trailing Stop по PSAR
+input ENUM_TIMEFRAMES i_psarTrailingTimeframe = PERIOD_M15;				// Таймфрейм для Trailing Stop по PSAR
+input double i_psarTrailingStep = 0.02;										// Шаг изменения цены для Trailing Stop по PSAR
+input double i_psarTrailingMaxStep = 0.2;										// Максимальный шаг для Trailing Stop по PSAR
+input uint i_maxOpenedPositions = 1;											// Максимальное количество открытых позиций
+sinput string i_orderComment = "DayHLNG";										// Комментарий к ордерам
+//input uint i_maxAliveTime = 0; 												// Максимальное время жизни прямых позиций в часах
+//input uint i_maxAliveTimeReverse = 0;	 									// Максимальное время жизни реверсных позиций в часах
+//sinput bool i_closeStraightPosion = false;									// Закрывать прямую позицию при открытии реверсной
+input int i_period = 5;             											// Период усреднения
+input ENUM_MA_METHOD i_method = MODE_EMA;    		   					// Метод усреднения
+input ENUM_APPLIED_PRICE i_price = PRICE_CLOSE;			     				// Цена для расчёта
+input int i_shift = 0;               											// Смещение
+input double i_deviation = 1;              									// Отклонение границ от средней линии
+sinput bool i_useInverse = true;													// Выставлять инверсные позиции
+sinput bool i_showEnvelopes = true;												// Показывать значения Envelopes
+sinput bool i_useLocking = false;						   			      // Использовать локирование
+sinput bool i_useIncredibly = false;											// Использовать устранение запредельного состояния
 
 class CDayHLNG {
 public:
@@ -79,6 +82,10 @@ public:
 		if (m_lowOrderBarTime == 0) return INIT_FAILED;
 
 		if (!EventSetTimer(60)) return INIT_FAILED;
+
+		m_incrediblyTime = getLastRateTime();
+		m_newDay = false;
+		m_startIncredibly = false;
 
 		if (i_usePsarTrailing) {
 			m_psarHandle = iSAR(m_symbol, i_psarTrailingTimeframe, i_psarTrailingStep, i_psarTrailingMaxStep);
@@ -140,6 +147,8 @@ public:
 
 	void OnTimer() {
 //		closeExpiredPositions();
+
+		if (i_useIncredibly) Incredibly();
 
 		if (i_useLocking) Locking();
 
@@ -234,6 +243,13 @@ private:
 //	bool m_reversePositionOpened;
 	ulong m_positionsWithReverse[];
 	datetime m_lastDrawnEnvelopesTime;
+	datetime m_incrediblyTime;
+	bool m_newDay;
+	bool m_startIncredibly;
+	ulong m_ticket;
+	bool m_executionIncredibly;
+
+
 	CInfoPanel m_infoPanel;
 
 	CTrade m_trade;
@@ -241,6 +257,100 @@ private:
 	COrderInfo m_orderInfo;
 	CPositionInfo m_positionInfo;
 	CAccountInfo m_accountInfo;
+
+//--------------------------------------------------------------------------/
+//	Определение запредельного состояния
+//--------------------------------------------------------------------------/
+	bool Incredibly(){
+
+		setTimeIncredibly();
+		setStartIncredibly();
+		executionIncredibly();
+
+	return true;
+	}
+//--------------------------------------------------------------------------/
+
+	void executionIncredibly() {
+		if (m_executionIncredibly == false) return;
+
+		m_trade.PositionClose(m_ticket);
+		Print("закрыта позиция ticket  ",  m_ticket);
+		m_executionIncredibly = false;
+
+	}
+
+//--------------------------------------------------------------------------/
+
+	void setStartIncredibly() {
+		if (m_startIncredibly == false) return;
+
+		CPositionInfo pi;
+		uint buyNumber = 0;
+		uint sellNumber = 0;
+		double point = Point();
+		double profit = 0;
+		double highPrice = 0;
+		double lowPrice = 1000000;
+		m_executionIncredibly = false;
+		m_ticket = 0;
+
+		int positionsTotal = PositionsTotal();
+		for (int i = positionsTotal - 1; i >= 0; i--) {
+			pi.SelectByIndex(i);
+			if (pi.Symbol() != m_symbol || pi.Magic() != i_magicNumber) continue;
+			if (pi.Time() > TimeCurrent() - 3600 * 24) {
+//				Print("DEBUG: Позиция открыта менее суток назад");
+				break;
+			}
+
+			ENUM_POSITION_TYPE type = pi.PositionType();
+			double price = pi.PriceOpen();
+
+			if (type == POSITION_TYPE_BUY) {
+				buyNumber++;
+				profit += pi.Profit();
+				if (lowPrice > price) {
+					lowPrice = price;
+					m_ticket = pi.Ticket();
+				}
+			}
+
+			if (type == POSITION_TYPE_SELL) {
+				sellNumber++;
+				profit += pi.Profit();
+				if (highPrice < price){
+					highPrice = price;
+					m_ticket = pi.Ticket();
+				}
+			}
+		}
+
+		if ((buyNumber == i_maxOpenedPositions && sellNumber == 0) || (buyNumber == 0 && sellNumber == i_maxOpenedPositions)){
+			if (profit/(100000 * point) < i_incrediblyLimit) {
+			Print("превышен лимит  ",  i_incrediblyLimit, "  profit = ", profit, "profit/point  ", profit/(100000 * point));
+			m_executionIncredibly = true;
+			}
+		}
+
+		m_startIncredibly = false;
+	}
+
+//--------------------------------------------------------------------------/
+
+	void setTimeIncredibly() {
+		if (m_lastRateTime > m_incrediblyTime) {
+			m_newDay = true;
+			m_incrediblyTime = m_lastRateTime + i_incrediblyDelay;
+//			Print("m_newDay ", m_newDay, "m_incrediblyTime ", m_incrediblyTime);
+		}
+
+		if (m_newDay == true && TimeCurrent() > m_incrediblyTime) {
+			m_startIncredibly = true;
+			m_newDay = false;
+//			Print("m_startIncredibly ", m_startIncredibly);
+		}
+	}
 
 //--------------------------------------------------------------------------/
 //  Локирование
@@ -493,7 +603,7 @@ private:
 */
 	bool checkAllowTrade(datetime t) {
 		return getOpenedPositionsNumber() < i_maxOpenedPositions &&
-			m_symbolInfo.Spread() < (int)i_maxSpread &&
+			m_symbolInfo.Spread() < (int) i_maxSpread &&
 			TimeCurrent() - t > i_delay;
 	}
 
