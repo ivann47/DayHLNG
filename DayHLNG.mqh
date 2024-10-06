@@ -267,7 +267,7 @@ private:
 		setStartIncredibly();
 		executionIncredibly();
 
-	return true;
+		return true;
 	}
 //--------------------------------------------------------------------------/
 
@@ -326,10 +326,10 @@ private:
 			}
 		}
 
-		if ((buyNumber == i_maxOpenedPositions && sellNumber == 0) || (buyNumber == 0 && sellNumber == i_maxOpenedPositions)){
+		if ((buyNumber == i_maxOpenedPositions && sellNumber == 0) || (buyNumber == 0 && sellNumber == i_maxOpenedPositions)) {
 			if (profit/(100000 * point) < i_incrediblyLimit) {
-			Print("превышен лимит  ",  i_incrediblyLimit, "  profit = ", profit, "profit/point  ", profit/(100000 * point));
-			m_executionIncredibly = true;
+				Print("превышен лимит  ",  i_incrediblyLimit, "  profit = ", profit, "profit/point  ", profit/(100000 * point));
+				m_executionIncredibly = true;
 			}
 		}
 
