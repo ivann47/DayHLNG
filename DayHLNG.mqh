@@ -310,8 +310,8 @@ private:
 			if (type == POSITION_TYPE_BUY) {
 				buyNumber++;
 				profit += pi.Profit();
-				if (lowPrice > price) {
-					lowPrice = price;
+				if (highPrice < price){
+					highPrice = price;
 					m_ticket = pi.Ticket();
 				}
 			}
@@ -319,8 +319,8 @@ private:
 			if (type == POSITION_TYPE_SELL) {
 				sellNumber++;
 				profit += pi.Profit();
-				if (highPrice < price){
-					highPrice = price;
+				if (lowPrice > price) {
+					lowPrice = price;
 					m_ticket = pi.Ticket();
 				}
 			}
