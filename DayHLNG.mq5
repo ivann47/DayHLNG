@@ -5,7 +5,7 @@
 #define     MName          "DayHLNG"
 #define		MMajor		   "2"
 #define		MMinor		   "12"
-#define		MPatchlevel	   "1"
+#define		MPatchlevel	   "2"
 //#define     MVersion       "2.10"
 #define     MCopyright     "Copyright \x00A9 2021, Alexey Ivannikov (alexey.a.ivannikov@gmail.com), All rights reserved"
 //---------------------------------------------------------------------------------------------------------------------

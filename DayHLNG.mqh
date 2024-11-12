@@ -59,6 +59,8 @@ sinput bool i_useInverse = true;													// Выставлять инвер�
 sinput bool i_showEnvelopes = true;												// Показывать значения Envelopes
 sinput bool i_useLocking = false;						   			      // Использовать локирование
 sinput bool i_useIncredibly = false;											// Использовать устранение запредельного состояния
+sinput bool i_incrediblyClose = false;											// Использовать закрытие позиции
+sinput bool i_incrediblyAdd = false;											// Использовать добавление позиции
 
 class CDayHLNG {
 public:
@@ -86,6 +88,7 @@ public:
 		m_incrediblyTime = getLastRateTime();
 		m_newDay = false;
 		m_startIncredibly = false;
+		m_positionAdd = 0;
 
 		if (i_usePsarTrailing) {
 			m_psarHandle = iSAR(m_symbol, i_psarTrailingTimeframe, i_psarTrailingStep, i_psarTrailingMaxStep);
@@ -248,7 +251,7 @@ private:
 	bool m_startIncredibly;
 	ulong m_ticket;
 	bool m_executionIncredibly;
-
+	uint m_positionAdd;
 
 	CInfoPanel m_infoPanel;
 
@@ -274,8 +277,16 @@ private:
 	void executionIncredibly() {
 		if (m_executionIncredibly == false) return;
 
-		m_trade.PositionClose(m_ticket);
-		Print("закрыта позиция ticket  ",  m_ticket);
+		if (i_incrediblyAdd == true) {
+			m_positionAdd = 1;
+			Print("позиция добавлена");
+		}
+
+		if (i_incrediblyClose == true) {
+			m_trade.PositionClose(m_ticket);
+			Print("закрыта позиция ticket  ",  m_ticket);
+		}
+
 		m_executionIncredibly = false;
 
 	}
@@ -294,6 +305,7 @@ private:
 		double lowPrice = 1000000;
 		m_executionIncredibly = false;
 		m_ticket = 0;
+		m_positionAdd = 0;
 
 		int positionsTotal = PositionsTotal();
 		for (int i = positionsTotal - 1; i >= 0; i--) {
@@ -602,7 +614,7 @@ private:
 	}
 */
 	bool checkAllowTrade(datetime t) {
-		return getOpenedPositionsNumber() < i_maxOpenedPositions &&
+		return getOpenedPositionsNumber() < (i_maxOpenedPositions + m_positionAdd) &&
 			m_symbolInfo.Spread() < (int) i_maxSpread &&
 			TimeCurrent() - t > i_delay;
 	}
