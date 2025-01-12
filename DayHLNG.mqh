@@ -28,7 +28,6 @@ input uint i_ordersOffset = 0;													// Смещение для ордер
 sinput uint i_maxSpread = 30;								            		// Максимальный размер спреда
 sinput uint i_delay = 10000;														// Задержка перед выставлением ордеров
 input uint i_incrediblyDelay = 5000;											// Задержка для анализа запредельного состояния
-input double i_incrediblyLimit = -1;											// Лимит запредельного состояния (отрицательное число)
 input uint i_minBarSize = 0;														// Минимальный размер свечи
 input uint i_maxBarSize = 100000;												// Максимальный размер свечи
 input double i_riskLimit = 0.01;													// Допустимый риск (коэффициент)
@@ -58,9 +57,10 @@ input double i_deviation = 1;              									// Отклонение гр
 sinput bool i_useInverse = true;													// Выставлять инверсные позиции
 sinput bool i_showEnvelopes = true;												// Показывать значения Envelopes
 sinput bool i_useLocking = false;						   			      // Использовать локирование
-sinput bool i_useIncredibly = false;											// Использовать устранение запредельного состояния
-sinput bool i_incrediblyClose = false;											// Использовать закрытие позиции
 sinput bool i_incrediblyAdd = false;											// Использовать добавление позиции
+input double i_incrediblyLimitAdd = -1;										// Лимит запредельного состояния добавки (отрицательное число)
+sinput bool i_incrediblyClose = false;											// Использовать закрытие позиции
+input double i_incrediblyLimitClose = -1;										// Лимит запредельного состояния закрытия (отрицательное число)
 
 class CDayHLNG {
 public:
@@ -151,7 +151,7 @@ public:
 	void OnTimer() {
 //		closeExpiredPositions();
 
-		if (i_useIncredibly) Incredibly();
+		if (i_incrediblyAdd || i_incrediblyClose) Incredibly();
 
 		if (i_useLocking) Locking();
 
@@ -250,7 +250,7 @@ private:
 	bool m_newDay;
 	bool m_startIncredibly;
 	ulong m_ticket;
-	bool m_executionIncredibly;
+//	bool m_executionIncredibly;
 	uint m_positionAdd;
 
 	CInfoPanel m_infoPanel;
@@ -268,27 +268,7 @@ private:
 
 		setTimeIncredibly();
 		setStartIncredibly();
-		executionIncredibly();
-
 		return true;
-	}
-//--------------------------------------------------------------------------/
-
-	void executionIncredibly() {
-		if (m_executionIncredibly == false) return;
-
-		if (i_incrediblyAdd == true) {
-			m_positionAdd = 1;
-			Print("позиция добавлена");
-		}
-
-		if (i_incrediblyClose == true) {
-			m_trade.PositionClose(m_ticket);
-			Print("закрыта позиция ticket  ",  m_ticket);
-		}
-
-		m_executionIncredibly = false;
-
 	}
 
 //--------------------------------------------------------------------------/
@@ -303,7 +283,6 @@ private:
 		double profit = 0;
 		double highPrice = 0;
 		double lowPrice = 1000000;
-		m_executionIncredibly = false;
 		m_ticket = 0;
 		m_positionAdd = 0;
 
@@ -312,7 +291,6 @@ private:
 			pi.SelectByIndex(i);
 			if (pi.Symbol() != m_symbol || pi.Magic() != i_magicNumber) continue;
 			if (pi.Time() > TimeCurrent() - 3600 * 24) {
-//				Print("DEBUG: Позиция открыта менее суток назад");
 				break;
 			}
 
@@ -339,9 +317,12 @@ private:
 		}
 
 		if ((buyNumber == i_maxOpenedPositions && sellNumber == 0) || (buyNumber == 0 && sellNumber == i_maxOpenedPositions)) {
-			if (profit/(100000 * point) < i_incrediblyLimit) {
-				Print("превышен лимит  ",  i_incrediblyLimit, "  profit = ", profit, "profit/point  ", profit/(100000 * point));
-				m_executionIncredibly = true;
+			if (i_incrediblyAdd == true && (profit/(100000 * point) < i_incrediblyLimitAdd)) {
+				m_positionAdd = 1;
+			}
+
+			if (i_incrediblyClose == true && (profit/(100000 * point) < i_incrediblyLimitClose)) {
+				m_trade.PositionClose(m_ticket);
 			}
 		}
 
@@ -354,13 +335,11 @@ private:
 		if (m_lastRateTime > m_incrediblyTime) {
 			m_newDay = true;
 			m_incrediblyTime = m_lastRateTime + i_incrediblyDelay;
-//			Print("m_newDay ", m_newDay, "m_incrediblyTime ", m_incrediblyTime);
 		}
 
 		if (m_newDay == true && TimeCurrent() > m_incrediblyTime) {
 			m_startIncredibly = true;
 			m_newDay = false;
-//			Print("m_startIncredibly ", m_startIncredibly);
 		}
 	}
 
@@ -430,13 +409,13 @@ private:
 
 			if (isPositionReverse(pi)) {
 				data.totalCounters.reverse++;
-				if (pi.Symbol() == m_symbol) data.symbolCounters.reverse++;
+				if (pi.Symbol() == m_symbol  && pi.Magic() == i_magicNumber) data.symbolCounters.reverse++;
 			} else if (isPositionInverse(pi)) {
 				data.totalCounters.inverse++;
-				if (pi.Symbol() == m_symbol) data.symbolCounters.inverse++;
+				if (pi.Symbol() == m_symbol  && pi.Magic() == i_magicNumber) data.symbolCounters.inverse++;
 			} else {
 				data.totalCounters.direct++;
-				if (pi.Symbol() == m_symbol) data.symbolCounters.direct++;
+				if (pi.Symbol() == m_symbol  && pi.Magic() == i_magicNumber) data.symbolCounters.direct++;
 			}
 		}
 	}
