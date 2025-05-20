@@ -27,7 +27,7 @@ input ENUM_ORDER_POSITION i_ordersPosition = ORDER_POSITION_SHADOW;	// Орие�
 input uint i_ordersOffset = 0;													// Смещение для ордеров
 sinput uint i_maxSpread = 30;								            		// Максимальный размер спреда
 sinput uint i_delay = 10000;														// Задержка перед выставлением ордеров
-input uint i_incrediblyDelay = 5000;											// Задержка для анализа запредельного состояния
+sinput uint i_incrediblyDelay = 5000;											// Задержка для анализа запредельного состояния
 input uint i_minBarSize = 0;														// Минимальный размер свечи
 input uint i_maxBarSize = 100000;												// Максимальный размер свечи
 input double i_riskLimit = 0.01;													// Допустимый риск (коэффициент)
@@ -46,7 +46,7 @@ input double i_psarTrailingStep = 0.02;										// Шаг изменения ц
 input double i_psarTrailingMaxStep = 0.2;										// Максимальный шаг для Trailing Stop по PSAR
 input uint i_maxOpenedPositions = 1;											// Максимальное количество открытых позиций
 sinput string i_orderComment = "DayHLNG";										// Комментарий к ордерам
-//input uint i_maxAliveTime = 0; 												// Максимальное время жизни прямых позиций в часах
+input uint i_maxAliveTime = 0; 					   							// Максимальное время жизни позиций в часах
 //input uint i_maxAliveTimeReverse = 0;	 									// Максимальное время жизни реверсных позиций в часах
 //sinput bool i_closeStraightPosion = false;									// Закрывать прямую позицию при открытии реверсной
 input int i_period = 5;             											// Период усреднения
@@ -58,9 +58,9 @@ sinput bool i_useInverse = true;													// Выставлять инвер�
 sinput bool i_showEnvelopes = true;												// Показывать значения Envelopes
 sinput bool i_useLocking = false;						   			      // Использовать локирование
 sinput bool i_incrediblyAdd = false;											// Использовать добавление позиции
-input double i_incrediblyLimitAdd = -1;										// Лимит запредельного состояния добавки (отрицательное число)
+input double i_incrediblyLimitAdd = 1;										   // Лимит запредельного состояния добавки (пипсы)
 sinput bool i_incrediblyClose = false;											// Использовать закрытие позиции
-input double i_incrediblyLimitClose = -1;										// Лимит запредельного состояния закрытия (отрицательное число)
+input double i_incrediblyLimitClose = 1;										// Лимит запредельного состояния закрытия (пипсы)
 
 class CDayHLNG {
 public:
@@ -72,18 +72,29 @@ public:
 	};
 
 	int OnInit() {
+		checkInputParameters();
+				
 		m_symbol = Symbol();
 
-		if (!m_symbolInfo.Name(m_symbol)) return INIT_FAILED;
+		if (!m_symbolInfo.Name(m_symbol)) {
+			Print("Ошибка: Не удалось получить информацию о символе.");
+			return INIT_FAILED;
+		}
 
 		m_trade.SetExpertMagicNumber(i_magicNumber);
 
 		if (!checkInputParams()) return INIT_FAILED;
 
 		m_lowOrderBarTime = m_highOrderBarTime = getLastRateTime();
-		if (m_lowOrderBarTime == 0) return INIT_FAILED;
+		if (m_lowOrderBarTime == 0) {
+			Print("Ошибка: Не удалось получить время последнего бара.");
+			return INIT_FAILED;
+		}
 
-		if (!EventSetTimer(60)) return INIT_FAILED;
+		if (!EventSetTimer(60)) {
+			Print("Ошибка: Не удалось установить таймер.");
+			return INIT_FAILED;
+		}
 
 		m_incrediblyTime = getLastRateTime();
 		m_newDay = false;
@@ -93,6 +104,7 @@ public:
 		if (i_usePsarTrailing) {
 			m_psarHandle = iSAR(m_symbol, i_psarTrailingTimeframe, i_psarTrailingStep, i_psarTrailingMaxStep);
 			if (m_psarHandle == INVALID_HANDLE) {
+				Print("Ошибка: Не удалось создать хэндл для индикатора PSAR.");
 				cleanup();
 				return INIT_FAILED;
 			}
@@ -100,6 +112,7 @@ public:
 
 		m_envelopesHandle = iEnvelopes(m_symbol, PERIOD_D1, i_period, i_shift, i_method, i_price, i_deviation);
 		if (m_envelopesHandle == INVALID_HANDLE) {
+			Print("Ошибка: Не удалось создать хэндл для индикатора Envelopes.");
 			cleanup();
 			return INIT_FAILED;
 		}
@@ -119,10 +132,15 @@ public:
 	}
 
 	void OnTick() {
-		if (!checkOpenedPositions()) return;
+		if (!checkOpenedPositions()) {
+			Print("Ошибка: Не удалось проверить открытые позиции.");
+			return;
+		}
 
-		m_symbolInfo.Refresh();
-		m_symbolInfo.RefreshRates();
+		if (!m_symbolInfo.Refresh() || !m_symbolInfo.RefreshRates()) {
+			Print("Ошибка: Не удалось обновить данные символа.");
+			return;
+		}
 
 		int positionsTotal = PositionsTotal();
 		for (int i = positionsTotal - 1; i >= 0; i--) {
@@ -132,16 +150,26 @@ public:
 				double sl = m_positionInfo.StopLoss();
 
 				if (i_useBreakeven && checkCanSetBreakeven(ticket, sl)) {
-					modifyPosition(ticket, sl, tp);
+					if (!modifyPosition(ticket, sl, tp)) {
+						Print("Ошибка: Не удалось модифицировать позицию для безубытка.");
+					}
 				}
+
 				if (i_useFixedTrailing && checkCanFixedTrail(ticket, sl)) {
-					modifyPosition(ticket, sl, tp);
+					if (!modifyPosition(ticket, sl, tp)) {
+						Print("Ошибка: Не удалось модифицировать позицию для фиксированного трейлинга.");
+					}
 				}
+
 				if (i_usePsarTrailing) {
 					if (checkCanPsarTrail(ticket, sl)) {
-						modifyPosition(ticket, sl, tp);
+						if (!modifyPosition(ticket, sl, tp)) {
+							Print("Ошибка: Не удалось модифицировать позицию для трейлинга по PSAR.");
+						}
 					} else if (checkCanOpenReversePosition(m_positionInfo)) {
-						openReversePosition(ticket);
+						if (!openReversePosition(ticket)) {
+							Print("Ошибка: Не удалось открыть реверсную позицию.");
+						}
 					}
 				}
 			}
@@ -149,7 +177,7 @@ public:
 	}
 
 	void OnTimer() {
-//		closeExpiredPositions();
+		CheckAndCloseExpiredPositions();
 
 		if (i_incrediblyAdd || i_incrediblyClose) Incredibly();
 
@@ -233,6 +261,65 @@ public:
 		}
 	}
 
+	bool checkInputParameters() {
+		// Проверка магического номера
+		if(i_magicNumber == 0) {
+			Print("Ошибка: MagicNumber не может быть равен 0");
+			return false;
+		}
+
+		// Проверка спреда
+		if(i_maxSpread <= 0) {
+			Print("Ошибка: Максимальный спред должен быть > 0");
+			return false;
+		}
+
+		// Проверка уровня риска
+		if(i_riskLimit <= 0 || i_riskLimit > 1) {
+			Print("Ошибка: Уровень риска должен быть в диапазоне (0, 1]");
+			return false;
+		}
+
+		// Проверка объема
+		if(i_fixedVolume <= 0) {
+			Print("Ошибка: Фиксированный объем должен быть > 0");
+			return false;
+		}
+
+		// Проверка тейк-профита и стоп-лосса
+		if(i_takeProfit <= 0 || i_stopLoss <= 0) {
+			Print("Ошибка: Тейк-профит и стоп-лосс должны быть > 0");
+			return false;
+		}
+
+		// Проверка периода для Envelopes
+		if(i_period <= 0) {
+			Print("Ошибка: Период индикатора должен быть > 0");
+			return false;
+		}
+
+		// Проверка отклонения для Envelopes
+		if(i_deviation <= 0) {
+			Print("Ошибка: Отклонение индикатора должно быть > 0");
+			return false;
+		}
+
+		// Проверка параметров для добавления позиции
+		if(i_incrediblyAdd && i_incrediblyLimitAdd <= 0) {
+			Print("Ошибка: При включенном добавлении позиции i_incrediblyLimitAdd должен быть > 0");
+			return false;
+		}
+
+		// Проверка параметров для закрытия позиции
+		if(i_incrediblyClose && i_incrediblyLimitClose <= 0) {
+			Print("Ошибка: При включенном закрытии позиции i_incrediblyLimitClose должен быть > 0");
+			return false;
+		}
+
+		// Все проверки пройдены
+		return true;
+	}
+
 private:
 	string m_symbol;
 	datetime m_highOrderBarTime;
@@ -280,7 +367,7 @@ private:
 		uint buyNumber = 0;
 		uint sellNumber = 0;
 		double point = Point();
-		double profit = 0;
+		double priceDifferenceSum = 0; // Сумма разностей текущей цены и цены открытия
 		double highPrice = 0;
 		double lowPrice = 1000000;
 		m_ticket = 0;
@@ -295,34 +382,64 @@ private:
 			}
 
 			ENUM_POSITION_TYPE type = pi.PositionType();
-			double price = pi.PriceOpen();
+			double priceOpen = pi.PriceOpen();
+			double priceCurrent = pi.PriceCurrent();
+
+//			Рассчитываем разницу между текущей ценой и ценой открытия
+			double priceDifference = (type == POSITION_TYPE_BUY) ? (priceOpen - priceCurrent) : (priceCurrent - priceOpen);
+			priceDifferenceSum += priceDifference;
 
 			if (type == POSITION_TYPE_BUY) {
 				buyNumber++;
-				profit += pi.Profit();
-				if (highPrice < price){
-					highPrice = price;
+				if (highPrice < priceOpen) {
+					highPrice = priceOpen;
 					m_ticket = pi.Ticket();
 				}
 			}
 
 			if (type == POSITION_TYPE_SELL) {
 				sellNumber++;
-				profit += pi.Profit();
-				if (lowPrice > price) {
-					lowPrice = price;
+				if (lowPrice > priceOpen) {
+					lowPrice = priceOpen;
 					m_ticket = pi.Ticket();
 				}
 			}
 		}
 
 		if ((buyNumber == i_maxOpenedPositions && sellNumber == 0) || (buyNumber == 0 && sellNumber == i_maxOpenedPositions)) {
-			if (i_incrediblyAdd == true && (profit/(100000 * point) < i_incrediblyLimitAdd)) {
+
+//		Переводим сумму разностей в пункты
+		double priceDifferenceInPoints = priceDifferenceSum / point;
+		Print("priceDifferenceSum ", priceDifferenceSum, "  priceDifferenceInPoints ", priceDifferenceInPoints); 
+//		Вычисляем цены лимитов
+		double priceLimitAdd = (sellNumber == 0) ? (pi.PriceCurrent() + (priceDifferenceSum - i_incrediblyLimitAdd * point) / i_maxOpenedPositions) :
+			(pi.PriceCurrent() - (priceDifferenceSum - i_incrediblyLimitAdd * point) / i_maxOpenedPositions);
+		double priceLimitClose = (sellNumber == 0) ? (pi.PriceCurrent() + (priceDifferenceSum - i_incrediblyLimitClose * point) / i_maxOpenedPositions) :
+			(pi.PriceCurrent() - (priceDifferenceSum - i_incrediblyLimitClose * point) / i_maxOpenedPositions);
+
+		CreateTrend("priceLimitAdd", TimeCurrent(), priceLimitAdd, TimeCurrent() + 24 * 3600, priceLimitAdd, clrWhite, 3);
+		CreateTrend("priceLimitClose", TimeCurrent(), priceLimitClose, TimeCurrent() + 24 * 3600, priceLimitClose, clrYellow, 3);
+
+		Print("buy ", buyNumber, " PriceCurrent ", pi.PriceCurrent(), " priceLimitAdd ", priceLimitAdd, " priceLimitClose ", priceLimitClose);
+
+			if (i_incrediblyAdd == true && (priceDifferenceInPoints > i_incrediblyLimitAdd)) {
 				m_positionAdd = 1;
 			}
 
-			if (i_incrediblyClose == true && (profit/(100000 * point) < i_incrediblyLimitClose)) {
+			if (i_incrediblyClose == true && (priceDifferenceInPoints > i_incrediblyLimitClose)) {
 				m_trade.PositionClose(m_ticket);
+			}
+		}
+		if ((buyNumber > i_maxOpenedPositions && sellNumber == 0) || (buyNumber == 0 && sellNumber > i_maxOpenedPositions)) {
+			if (i_incrediblyClose == true ) {
+				m_trade.PositionClose(m_ticket);
+				Print("PositionClose m_ticket ", m_ticket); 
+			}
+		}
+		if (buyNumber == sellNumber && sellNumber > 0) {
+			if (i_incrediblyAdd == true ) {
+				m_positionAdd = 1;
+				Print("m_positionAdd = ", m_positionAdd); 
 			}
 		}
 
@@ -380,6 +497,35 @@ private:
 		}
 
 		return true;
+	}
+//--------------------------------------------------------------------------/
+	void CheckAndCloseExpiredPositions() {
+		// Если параметр = 0, функция не выполняется
+		if(i_maxAliveTime == 0) 
+			return;
+
+		datetime currentTime = TimeCurrent();
+		int totalPositions = PositionsTotal();
+
+		for(int i = totalPositions-1; i >= 0; i--) {
+			if(m_positionInfo.SelectByIndex(i)) {
+				// Проверяем только позиции с нашим MagicNumber
+				if(m_positionInfo.Magic() == i_magicNumber && m_positionInfo.Symbol() == Symbol()) {
+					datetime positionOpenTime = m_positionInfo.Time();
+					double hoursAlive = (currentTime - positionOpenTime) / 3600.0;
+
+					if(hoursAlive >= i_maxAliveTime) {
+						ulong ticket = m_positionInfo.Ticket();
+						PrintFormat("Закрытие позиции #%d (открыта %.1f часов назад)", ticket, hoursAlive);
+
+						// Закрываем позицию
+						if(!m_trade.PositionClose(ticket)) {
+								PrintFormat("Ошибка закрытия позиции #%d: %d", ticket, GetLastError());
+						}
+					}
+				}
+			}
+		}
 	}
 
 //--------------------------------------------------------------------------/
